@@ -43,8 +43,9 @@ test('mitgelieferte Datenbank: DHL hat die Status-API, alle Links sind https', (
     const r = sh.validateShipperDb(bundledRaw);
     const byId = Object.fromEntries(r.db.shippers.map(s => [s.id, s]));
     assert.equal(byId.dhl.provider, 'dhl');
-    for (const id of ['ups', 'dpd', 'gls', 'amazon'])
-        assert.equal(byId[id].provider, null, id);
+    for (const id of ['ups', 'dpd', 'gls'])
+        assert.equal(byId[id].provider, '17track', id);
+    assert.equal(byId.amazon.provider, null);
     for (const s of r.db.shippers)
         assert.ok(s.trackUrl.startsWith('https://'), s.id);
 });
@@ -54,7 +55,8 @@ test('Registry wird angewendet und ist sofort überall sichtbar', () => {
     assert.deepEqual(sh.carrierIds(), ['dhl', 'ups', 'dpd', 'gls', 'amazon']);
     assert.equal(u.CARRIERS, sh.CARRIERS);   // dasselbe Objekt, wird in-place aktualisiert
     assert.equal(u.getCarrier('dhl').api, true);
-    assert.equal(u.getCarrier('ups').api, false);
+    assert.equal(u.getCarrier('ups').api, true);
+    assert.equal(u.getCarrier('amazon').api, false);
     assert.match(u.getCarrier('dhl').url('0034 x'), /piececode=0034%20x$/);
     assert.match(u.getCarrier('dhl').trackUrl, /\{number\}/);   // Vorlage für die Anzeige in den Einstellungen
     assert.equal(sh.activeShipperVersion(), bundledRaw.version);
@@ -241,6 +243,66 @@ test('Formatierung', () => {
     assert.equal(u.formatDateTime(new Date(2026, 8, 30, 10, 5).getTime()), '30.09. 10:05');
     assert.equal(u.dayKey(n), '2026-09-30');
     assert.deepEqual(u.parseCache('nope'), {});
+});
+
+test('17TRACK: Status normalisieren', () => {
+    const r = u.normalizeTrack17Info({ number: 'X', track_info: {
+        latest_status: { status: 'OutForDelivery' },
+        latest_event: { description: 'Paket in Zustellung', location: 'Krefeld', time_iso: '2026-09-30T08:15:00+02:00' },
+        time_metrics: { estimated_delivery_date: { from: '2026-09-30T00:00:00+02:00', to: null } },
+    } });
+    assert.equal(r.ok, true);
+    assert.equal(r.state, 'transit');
+    assert.equal(r.statusText, 'In Zustellung');
+    assert.equal(r.detail, 'Paket in Zustellung');
+    assert.equal(r.location, 'Krefeld');
+    assert.equal(r.timestampMs, Date.parse('2026-09-30T08:15:00+02:00'));
+    assert.match(r.eta, /^2026-09-30/);
+    assert.equal(u.normalizeTrack17Info({ track_info: { latest_status: { status: 'Delivered' } } }).state, 'delivered');
+    assert.equal(u.normalizeTrack17Info({ track_info: { latest_status: { status: 'Exception' } } }).state, 'failure');
+    assert.equal(u.normalizeTrack17Info({ track_info: { latest_status: { status: 'InfoReceived' } } }).state, 'preTransit');
+    // Fehlende oder unbekannte Felder dürfen nichts kaputt machen
+    const empty = u.normalizeTrack17Info({});
+    assert.equal(empty.ok, true);
+    assert.equal(empty.state, 'unknown');
+    assert.equal(empty.eta, '');
+    assert.equal(u.normalizeTrack17Info({ track_info: { latest_status: { status: 'Neu' }, latest_event: { location: { x: 1 } } } }).location, '');
+});
+
+test('17TRACK: gettrackinfo- und register-Antworten', () => {
+    const ok = u.parseTrack17TrackInfo(200, { code: 0, data: { accepted: [
+        { number: 'A', track_info: { latest_status: { status: 'InTransit' } } }], rejected: [] } }, 'A');
+    assert.equal(ok.state, 'transit');
+
+    // Noch nicht registriert → Registrierung nötig
+    const notReg = u.parseTrack17TrackInfo(200, { code: 0, data: { accepted: [], rejected: [
+        { number: 'A', error: { code: -18019902, message: 'not registered' } }] } }, 'A');
+    assert.equal(notReg.notRegistered, true);
+
+    assert.equal(u.parseTrack17TrackInfo(401, null, 'A').error, 'auth');
+    assert.equal(u.parseTrack17TrackInfo(429, null, 'A').error, 'ratelimit');
+    assert.equal(u.parseTrack17TrackInfo(500, null, 'A').error, 'http');
+    assert.equal(u.parseTrack17TrackInfo(200, 'kein objekt', 'A').error, 'http');
+
+    assert.equal(u.parseTrack17Register(200, { code: 0, data: { accepted: [{ number: 'A' }], rejected: [] } }).ok, true);
+    assert.equal(u.parseTrack17Register(200, { code: 0, data: { accepted: [], rejected: [
+        { number: 'A', error: { code: -18019901 } }] } }).ok, true);
+    assert.equal(u.parseTrack17Register(200, { code: 0, data: { accepted: [], rejected: [
+        { number: 'A', error: { code: -18019908 } }] } }).error, 'quota');
+    assert.equal(u.parseTrack17Register(200, { code: 0, data: { accepted: [], rejected: [
+        { number: 'A', error: { code: -18010012, message: 'Format ungültig' } }] } }).error, 'notfound');
+    assert.equal(u.parseTrack17Register(200, { code: 0, data: { accepted: [], rejected: [
+        { number: 'A', error: { code: -18019903 } }] } }).error, 'notfound');
+});
+
+test('Versender-Datenbank: Provider 17TRACK', () => {
+    const db = JSON.parse(readFileSync(join(root, 'linux/data/shippers.json'), 'utf8'));
+    const byId = Object.fromEntries(db.shippers.map(x => [x.id, x]));
+    assert.equal(byId.dhl.provider, 'dhl');
+    for (const id of ['ups', 'dpd', 'gls'])
+        assert.equal(byId[id].provider, '17track', id);
+    assert.equal(byId.amazon.provider, undefined);
+    assert.ok(sh.PROVIDERS.includes('17track'));
 });
 
 console.log(`${count} Tests bestanden`);

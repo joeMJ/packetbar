@@ -18,7 +18,7 @@
     <key name="request-budget" type="s">
       <default>'{}'</default>
       <summary>Anfragezähler pro Tag (JSON)</summary>
-      <description>Zählt die heutigen API-Anfragen, damit das Tageslimit der Tracking-API nicht überschritten wird.</description>
+      <description>Zählt die heutigen API-Anfragen je Status-Anbieter, damit Tageslimits der Tracking-APIs nicht überschritten werden.</description>
     </key>
 
     <key name="hide-delivered-days" type="i">
@@ -32,6 +32,12 @@
     <key name="dhl-key-revision" type="i">
       <default>0</default>
       <summary>Änderungszähler für den DHL-API-Key im Schlüsselbund</summary>
+      <description>Wird von den Einstellungen hochgezählt, wenn der Key im Schlüsselbund geändert wurde, damit die Extension neu abfragt.</description>
+    </key>
+
+    <key name="track17-key-revision" type="i">
+      <default>0</default>
+      <summary>Änderungszähler für den 17TRACK-API-Key im Schlüsselbund</summary>
       <description>Wird von den Einstellungen hochgezählt, wenn der Key im Schlüsselbund geändert wurde, damit die Extension neu abfragt.</description>
     </key>
 

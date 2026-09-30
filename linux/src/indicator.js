@@ -23,12 +23,17 @@ const STATE_ICONS = {
     unknown: 'dialog-question-symbolic',
 };
 
+const PROVIDER_LABELS = { dhl: 'DHL', '17track': '17TRACK' };
+
+// Hinweistexte je Fehlerart; `name` ist der Status-Anbieter (DHL, 17TRACK).
 const HINT_TEXTS = {
-    locked: 'Schlüsselbund gesperrt – DHL wird abgefragt, sobald er entsperrt ist.',
-    nokey: 'Kein DHL-API-Key hinterlegt – bitte in den Einstellungen eintragen.',
-    auth: 'DHL lehnt den API-Key ab – bitte in den Einstellungen prüfen. Neu erstellte Keys können bis zu 24 Stunden brauchen, bis sie aktiv sind.',
-    ratelimit: 'DHL-Anfragelimit erreicht – Abfragen pausieren eine Stunde.',
-    budget: 'Tageslimit für DHL-Anfragen fast erreicht – morgen geht es weiter.',
+    locked: name => `Schlüsselbund gesperrt – ${name} wird abgefragt, sobald er entsperrt ist.`,
+    nokey: name => `Kein ${name}-API-Key hinterlegt – bitte in den Einstellungen eintragen.`,
+    auth: name => `${name} lehnt den API-Key ab – bitte in den Einstellungen prüfen.`
+        + (name === 'DHL' ? ' Neu erstellte Keys können bis zu 24 Stunden brauchen, bis sie aktiv sind.' : ''),
+    ratelimit: name => `${name}-Anfragelimit erreicht – Abfragen pausieren eine Stunde.`,
+    budget: name => `Tageslimit für ${name}-Anfragen fast erreicht – morgen geht es weiter.`,
+    quota: name => `${name}-Kontingent aufgebraucht – neue Sendungen können erst im nächsten Monat registriert werden.`,
 };
 
 export const PacketIndicator = GObject.registerClass(
@@ -385,7 +390,7 @@ class PacketIndicator extends PanelMenu.Button {
 
         // Hinweis-Banner
         if (hint && HINT_TEXTS[hint.kind]) {
-            this._hintLabel.text = HINT_TEXTS[hint.kind];
+            this._hintLabel.text = HINT_TEXTS[hint.kind](PROVIDER_LABELS[hint.provider] ?? 'Status-Anbieter');
             this._hintBanner.visible = true;
         } else {
             this._hintBanner.visible = false;

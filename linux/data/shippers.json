@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "version": 1,
+  "version": 2,
   "updated": "2026-09-30",
   "shippers": [
     {
@@ -13,18 +13,21 @@
     {
       "id": "ups",
       "name": "UPS",
+      "provider": "17track",
       "trackUrl": "https://www.ups.com/track?loc=de_DE&tracknum={number}",
       "numberHint": "Tracking-Nummer, beginnt meist mit 1Z"
     },
     {
       "id": "dpd",
       "name": "DPD",
+      "provider": "17track",
       "trackUrl": "https://tracking.dpd.de/parcelstatus?query={number}&locale=de_DE",
       "numberHint": "Paketscheinnummer, meist 14 Ziffern"
     },
     {
       "id": "gls",
       "name": "GLS",
+      "provider": "17track",
       "trackUrl": "https://gls-group.com/DE/de/paketverfolgung?match={number}",
       "numberHint": "Paketnummer, meist 11 oder 12 Ziffern"
     },

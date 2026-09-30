@@ -15,7 +15,7 @@
 export const SCHEMA_VERSION = 1;
 
 /** Status-Anbieter, für die der Code einen Client mitbringt. */
-export const PROVIDERS = ['dhl'];
+export const PROVIDERS = ['dhl', '17track'];
 
 const ID_PATTERN = /^[a-z0-9-]{2,20}$/;
 const MAX_SHIPPERS = 50;

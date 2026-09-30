@@ -24,6 +24,7 @@ const SCHEMA = new Secret.Schema(
 /** Namen der Einträge im Schlüsselbund (Attribut `key`) und ihre Bezeichnung. */
 export const SECRET_LABELS = {
     'dhl-api-key': 'packetbar – DHL API-Key',
+    '17track-api-key': 'packetbar – 17TRACK API-Key',
 };
 
 const attributes = name => ({ 'key': name });

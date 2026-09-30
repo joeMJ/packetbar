@@ -188,6 +188,132 @@ export function dhlHttpError(status) {
 }
 
 // ---------------------------------------------------------------------------
+// 17TRACK: Antworten der Tracking-API (v2.4) normalisieren
+// ---------------------------------------------------------------------------
+
+const TRACK17_STATE = {
+    NotFound: ['unknown', 'Noch keine Daten'],
+    InfoReceived: ['preTransit', 'Angekündigt'],
+    InTransit: ['transit', 'Unterwegs'],
+    Expired: ['unknown', 'Keine Updates mehr'],
+    AvailableForPickup: ['transit', 'Abholbereit'],
+    OutForDelivery: ['transit', 'In Zustellung'],
+    DeliveryFailure: ['failure', 'Zustellung fehlgeschlagen'],
+    Delivered: ['delivered', 'Zugestellt'],
+    Exception: ['failure', 'Zustellproblem'],
+};
+
+/**
+ * Fehlercodes aus `rejected[].error.code` (register / gettrackinfo).
+ */
+export const TRACK17_CODES = {
+    INVALID_FORMAT: -18010012,
+    INVALID_DATA: -18010013,
+    ALREADY_REGISTERED: -18019901,
+    NOT_REGISTERED: -18019902,
+    CARRIER_UNDETECTED: -18019903,
+    DAILY_LIMIT: -18019907,
+    QUOTA_EXHAUSTED: -18019908,
+};
+
+/**
+ * Antwort von POST /gettrackinfo → Status. Die Feldnamen folgen der 17TRACK-Doku
+ * (track_info.latest_status / latest_event / time_metrics); fehlende Felder werden
+ * toleriert, weil nicht jeder Versender alles liefert.
+ *
+ * @param {object} accepted - ein Element aus `data.accepted`
+ */
+export function normalizeTrack17Info(accepted) {
+    const info = accepted?.track_info ?? {};
+    const latestStatus = info.latest_status ?? {};
+    const latestEvent = info.latest_event ?? {};
+
+    const [state, label] = TRACK17_STATE[String(latestStatus.status ?? '')] ?? ['unknown', STATE_LABELS.unknown];
+
+    const description = String(latestEvent.description ?? '').trim();
+    const rawLocation = latestEvent.location;
+    const location = typeof rawLocation === 'string' ? rawLocation.trim() : '';
+
+    const timestamp = latestEvent.time_iso ?? latestEvent.time_utc ?? null;
+    const timestampMs = timestamp ? Date.parse(timestamp) : NaN;
+
+    const eta = info.time_metrics?.estimated_delivery_date ?? {};
+
+    return {
+        ok: true,
+        state,
+        statusText: label,
+        detail: description === label ? '' : description,
+        location,
+        timestampMs: Number.isNaN(timestampMs) ? null : timestampMs,
+        eta: String(eta.from ?? eta.to ?? ''),
+    };
+}
+
+/**
+ * Fehlerantwort aus einer `rejected[].error`-Angabe bzw. einem HTTP-Status.
+ */
+export function track17Error({ httpStatus = 200, code = 0, message = '' } = {}) {
+    if (httpStatus === 401 || httpStatus === 403)
+        return { ok: false, error: 'auth', message: 'API-Key ungültig' };
+    if (httpStatus === 429)
+        return { ok: false, error: 'ratelimit', message: 'Anfragelimit der 17TRACK-API erreicht' };
+    if (httpStatus !== 200)
+        return { ok: false, error: 'http', message: `HTTP ${httpStatus}` };
+
+    switch (code) {
+    case TRACK17_CODES.QUOTA_EXHAUSTED:
+    case TRACK17_CODES.DAILY_LIMIT:
+        return { ok: false, error: 'quota', message: 'Kontingent bei 17TRACK aufgebraucht' };
+    case TRACK17_CODES.INVALID_FORMAT:
+    case TRACK17_CODES.INVALID_DATA:
+    case TRACK17_CODES.CARRIER_UNDETECTED:
+        return { ok: false, error: 'notfound', message: message || 'Sendungsnummer nicht erkannt' };
+    default:
+        return { ok: false, error: 'http', message: message || `Fehlercode ${code}` };
+    }
+}
+
+/**
+ * Ganze Antwort von /gettrackinfo auswerten. `{ok:false, notRegistered:true}` heißt:
+ * Die Nummer muss erst per /register angelegt werden.
+ */
+export function parseTrack17TrackInfo(httpStatus, body, number) {
+    if (httpStatus !== 200 || !body || typeof body !== 'object')
+        return track17Error({ httpStatus });
+    if (body.code !== 0)
+        return track17Error({ code: body.code });
+
+    const accepted = body.data?.accepted;
+    const item = Array.isArray(accepted)
+        ? (accepted.find(a => a?.number === number) ?? accepted[0])
+        : null;
+    if (item)
+        return normalizeTrack17Info(item);
+
+    const rejected = body.data?.rejected?.[0]?.error;
+    if (rejected?.code === TRACK17_CODES.NOT_REGISTERED)
+        return { ok: false, notRegistered: true };
+    return track17Error({ code: rejected?.code ?? -1, message: rejected?.message });
+}
+
+/** Antwort von /register auswerten. */
+export function parseTrack17Register(httpStatus, body) {
+    if (httpStatus !== 200 || !body || typeof body !== 'object')
+        return track17Error({ httpStatus });
+    if (body.code !== 0)
+        return track17Error({ code: body.code });
+
+    if (body.data?.accepted?.length)
+        return { ok: true };
+    const rejected = body.data?.rejected?.[0]?.error;
+    // Schon angelegt (z. B. durch einen parallelen Aufruf) ist kein Fehler
+    if (rejected?.code === TRACK17_CODES.ALREADY_REGISTERED)
+        return { ok: true };
+    return track17Error({ code: rejected?.code ?? -1, message: rejected?.message });
+}
+
+// ---------------------------------------------------------------------------
 // Formatierung
 // ---------------------------------------------------------------------------
 

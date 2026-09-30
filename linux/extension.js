@@ -9,14 +9,12 @@ import Gio from 'gi://Gio';
 
 import { PacketIndicator } from './src/indicator.js';
 import { DhlClient } from './src/dhlClient.js';
+import { Track17Client } from './src/track17Client.js';
 import { UpdateChecker } from './src/updater.js';
 import { lookupSecretNoPrompt } from './src/secretStore.js';
 import { parseParcels, parseCache, dayKey, getCarrier } from './src/parcelUtil.js';
 import { loadShippers, updateShippers } from './src/shipperDb.js';
 
-// DHL erlaubt standardmäßig 250 Anfragen/Tag und 1 Anfrage/Sekunde.
-const DAILY_LIMIT = 240;          // Sicherheitsabstand zum Tageslimit
-const REQUEST_GAP_MS = 1300;      // Abstand zwischen zwei Anfragen (Spike Arrest)
 const RATE_LIMIT_PAUSE_MS = 60 * 60 * 1000;
 const MANUAL_REFRESH_GAP_MS = 30 * 1000;
 
@@ -27,8 +25,18 @@ export default class PacketBarExtension extends Extension {
 
         // Status-Anbieter: Client und Schlüsselbund-Eintrag sind bewusst fest im Code und
         // nicht Teil der Versender-Datenbank – diese verweist nur per `provider` darauf.
+        // dailyLimit / gapMs schonen die jeweilige API:
+        //  - DHL: 250 Anfragen/Tag, 1 Anfrage/Sekunde
+        //  - 17TRACK: 3 Anfragen/Sekunde, kein festes Tageslimit für Statusabfragen
         this._providers = {
-            dhl: { client: new DhlClient(), secret: 'dhl-api-key' },
+            dhl: {
+                client: new DhlClient(), secret: 'dhl-api-key', label: 'DHL',
+                dailyLimit: 240, gapMs: 1300, pausedUntil: 0,
+            },
+            '17track': {
+                client: new Track17Client(), secret: '17track-api-key', label: '17TRACK',
+                dailyLimit: 400, gapMs: 500, pausedUntil: 0,
+            },
         };
 
         // Versender-Datenbank (mitgeliefert oder heruntergeladen, die neuere gilt)
@@ -44,7 +52,6 @@ export default class PacketBarExtension extends Extension {
         this._lastFetchStart = 0;
         this._hint = null;
         this._isOffline = false;
-        this._pausedUntil = 0;
 
         this._refreshing = false;
         this._pendingFull = false;
@@ -74,6 +81,7 @@ export default class PacketBarExtension extends Extension {
             this.refreshData({ onlyMissing: true });
         });
         on('dhl-key-revision', () => this.refreshData({ force: true }));
+        on('track17-key-revision', () => this.refreshData({ force: true }));
         // Datenbank in den Einstellungen aktualisiert → neu einlesen, kein Neustart nötig
         on('shipper-db-revision', () => {
             this._shipperInfo = loadShippers(this.path);
@@ -275,26 +283,36 @@ export default class PacketBarExtension extends Extension {
     _loadBudget() {
         try {
             const data = JSON.parse(this._settings.get_string('request-budget') || '{}');
+            if (data.day === dayKey() && data.counts && typeof data.counts === 'object')
+                return { day: data.day, counts: { ...data.counts } };
+            // Altes Format (vor 0.5): ein einzelner Zähler, gehörte zu DHL
             if (data.day === dayKey() && Number.isFinite(data.count))
-                return { day: data.day, count: data.count };
+                return { day: data.day, counts: { dhl: data.count } };
         } catch (_e) {
             // ungültig → neu beginnen
         }
-        return { day: dayKey(), count: 0 };
+        return { day: dayKey(), counts: {} };
     }
 
-    _countRequest() {
-        const today = dayKey();
-        if (this._budget.day !== today)
-            this._budget = { day: today, count: 0 };
-        this._budget.count++;
+    _rollBudget() {
+        if (this._budget.day !== dayKey())
+            this._budget = { day: dayKey(), counts: {} };
+    }
+
+    _countRequests(providerId, n = 1) {
+        this._rollBudget();
+        this._budget.counts[providerId] = (this._budget.counts[providerId] ?? 0) + n;
         this._settings?.set_string('request-budget', JSON.stringify(this._budget));
     }
 
-    _budgetLeft() {
-        if (this._budget.day !== dayKey())
-            this._budget = { day: dayKey(), count: 0 };
-        return DAILY_LIMIT - this._budget.count;
+    _budgetLeft(providerId) {
+        this._rollBudget();
+        return this._providers[providerId].dailyLimit - (this._budget.counts[providerId] ?? 0);
+    }
+
+    _requestsToday() {
+        this._rollBudget();
+        return Object.values(this._budget.counts).reduce((a, b) => a + b, 0);
     }
 
     // -----------------------------------------------------------------------
@@ -344,17 +362,18 @@ export default class PacketBarExtension extends Extension {
      * @returns {Promise<{hint: object|null, offline: boolean}>}
      */
     async _fetchProvider(providerId, targets) {
-        const { client, secret: secretName } = this._providers[providerId];
+        const provider = this._providers[providerId];
+        const { client, secret: secretName } = provider;
 
         const { value: apiKey, locked } = await this._getSecret(secretName);
         if (!apiKey) {
             if (locked)
                 this._scheduleRetry(60);   // ohne Dialog warten, bis der Schlüsselbund entsperrt ist
-            return { hint: { kind: locked ? 'locked' : 'nokey' }, offline: false };
+            return { hint: { kind: locked ? 'locked' : 'nokey', provider: providerId }, offline: false };
         }
 
-        if (Date.now() < this._pausedUntil)
-            return { hint: { kind: 'ratelimit' }, offline: false };
+        if (Date.now() < provider.pausedUntil)
+            return { hint: { kind: 'ratelimit', provider: providerId }, offline: false };
 
         let hint = null;
         let offline = false;
@@ -363,8 +382,8 @@ export default class PacketBarExtension extends Extension {
             if (!this._cancellable || this._cancellable.is_cancelled())
                 break;
 
-            if (this._budgetLeft() <= 0) {
-                hint = { kind: 'budget' };
+            if (this._budgetLeft(providerId) <= 0) {
+                hint = { kind: 'budget', provider: providerId };
                 break;
             }
 
@@ -373,7 +392,7 @@ export default class PacketBarExtension extends Extension {
             if (res.error === 'cancelled')
                 break;
             if (res.error !== 'network')
-                this._countRequest();
+                this._countRequests(providerId, res.requests ?? 1);
 
             if (res.ok) {
                 this._cache[parcel.id] = { ...res, fetchedAt: Date.now() };
@@ -385,12 +404,15 @@ export default class PacketBarExtension extends Extension {
                     fetchedAt: Date.now(),
                 };
             } else if (res.error === 'auth') {
-                hint = { kind: 'auth' };
+                hint = { kind: 'auth', provider: providerId };
                 break;                     // Key falsch – keine weiteren Anfragen verschwenden
             } else if (res.error === 'ratelimit') {
-                this._pausedUntil = Date.now() + RATE_LIMIT_PAUSE_MS;
-                hint = { kind: 'ratelimit' };
+                provider.pausedUntil = Date.now() + RATE_LIMIT_PAUSE_MS;
+                hint = { kind: 'ratelimit', provider: providerId };
                 break;
+            } else if (res.error === 'quota') {
+                hint = { kind: 'quota', provider: providerId };
+                break;                     // Kontingent leer – weitere Registrierungen sind zwecklos
             } else if (res.error === 'network') {
                 offline = true;
                 break;
@@ -398,7 +420,7 @@ export default class PacketBarExtension extends Extension {
             // Andere HTTP-Fehler: alten Stand behalten, nächste Sendung versuchen
 
             if (i < targets.length - 1)
-                await this._sleep(REQUEST_GAP_MS);
+                await this._sleep(provider.gapMs);
         }
 
         return { hint, offline };
@@ -513,7 +535,7 @@ export default class PacketBarExtension extends Extension {
             isOffline: this._isOffline,
             lastTimestamp: this._lastTimestamp,
             updateStatus: this._lastUpdateStatus,
-            requestsToday: this._budget.day === dayKey() ? this._budget.count : 0,
+            requestsToday: this._requestsToday(),
         });
     }
 }

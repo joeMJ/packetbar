@@ -7,12 +7,12 @@
 > * **Keine Unterstützung:** Issues und Pull Requests werden nicht bearbeitet, Feature-Wünsche nicht umgesetzt. Bitte keine Issues eröffnen.
 > * **Keine Garantie:** Bereitstellung „wie besehen“, ohne jede Gewährleistung und Haftung. Nutzung auf eigenes Risiko.
 > * **Eigene Umgebung:** Entwickelt und getestet nur auf meinen eigenen Ubuntu-Rechnern (24.04 / 26.04, GNOME 46–50). Auf anderen Systemen kann es fehlschlagen.
-> * **Zugangsdaten & Netzwerk:** Die Extension läuft mit den Rechten deiner GNOME-Sitzung. API-Keys der Versanddienstleister (zunächst DHL) werden im GNOME-Schlüsselbund (libsecret) gespeichert – verschlüsselt, solange du abgemeldet bist; während der Sitzung können Programme deines Benutzers sie lesen. Die von dir eingetragenen Sendungsnummern werden regelmäßig an die Tracking-API des jeweiligen Versanddienstleisters übertragen (DHL: `api-eu.dhl.com`). Für die Versionsprüfung wird regelmäßig die `metadata.json` von `raw.githubusercontent.com` abgerufen (abschaltbar im Reiter *Updates*); die Installation per `curl … | bash` führt das geladene Skript direkt aus. **Lies den Code, bevor du ihn installierst.**
+> * **Zugangsdaten & Netzwerk:** Die Extension läuft mit den Rechten deiner GNOME-Sitzung. API-Keys der Status-Anbieter (DHL, 17TRACK) werden im GNOME-Schlüsselbund (libsecret) gespeichert – verschlüsselt, solange du abgemeldet bist; während der Sitzung können Programme deines Benutzers sie lesen. Die von dir eingetragenen Sendungsnummern werden regelmäßig an die Tracking-API des jeweiligen Versanddienstleisters übertragen (DHL: `api-eu.dhl.com`, UPS/DPD/GLS über 17TRACK: `api.17track.net`). Für die Versionsprüfung wird regelmäßig die `metadata.json` von `raw.githubusercontent.com` abgerufen (abschaltbar im Reiter *Updates*); die Installation per `curl … | bash` führt das geladene Skript direkt aus. **Lies den Code, bevor du ihn installierst.**
 > * **Keine Updates zugesichert:** Es kann jederzeit ohne Ankündigung Änderungen, Brüche oder die Löschung des Repos geben. Gern selbst forken und anpassen.
 >
 > *Private hobby project, unmaintained, provided as-is. No support, no issues, no warranty. Fork it if you like.*
 
-> **Zeigt direkt im GNOME-Panel, welche Pakete gerade zu dir unterwegs sind – zunächst DHL, weitere Versender folgen.**
+> **Zeigt direkt im GNOME-Panel, welche Pakete gerade zu dir unterwegs sind – DHL per API, UPS, DPD und GLS über 17TRACK.**
 
 ---
 
@@ -23,7 +23,8 @@
 * **Versender-Seite:** Je Versender eine aufklappbare Zeile mit seiner Konfiguration (bei DHL der API-Key im Schlüsselbund, bei den anderen Link und Nummernformat). Die Zeilen kommen aus der Versender-Datenbank und ändern sich mit ihr, ohne Neuanmeldung.
 * **Einstellungen:** Die Sendungen sind nach Versender gruppiert und aufklappbar (wie die Geräte in snmpbar), mit Anzahl, Status-Zusammenfassung und einem Knopf zum Entfernen zugestellter Sendungen.
 * **DHL per API:** Der Status wird über die [DHL Shipment Tracking API (Unified)](https://developer.dhl.com/api-reference/shipment-tracking) abgefragt.
-* **Weitere Versender:** UPS, DPD, GLS und Amazon können eingetragen werden. Für sie gibt es (noch) keine Status-Abfrage, die Karte öffnet die Sendungsverfolgung im Browser.
+* **UPS, DPD, GLS über 17TRACK:** Ein einziger Key beim Tracking-Dienst [17TRACK](https://api.17track.net/) deckt diese Versender ab. Kostenlos sind 100 neu registrierte Sendungen pro Monat, Statusabfragen kosten laut [17TRACK](https://help.17track.net/hc/en-us/articles/37575160271001-Quota-Deduction-Standards-and-Rules) kein Kontingent. Die Sendungsnummern gehen dabei an 17TRACK.
+* **Amazon:** Kann eingetragen werden, hat aber keine Status-Abfrage; die Karte öffnet die Bestellübersicht im Browser.
 * **Versender-Datenbank:** Namen und Links der Versender stehen als JSON im Repository und werden automatisch nachgeladen – ohne Ab- und Anmelden (siehe unten).
 * **Schonend zur API:** Das Standardlimit von DHL liegt bei 250 Anfragen pro Tag und einer pro Sekunde. packetbar fragt nur alle 15–240 Minuten ab (Standard: 60), wartet zwischen zwei Anfragen, fragt zugestellte Sendungen nie wieder ab, führt einen Tageszähler und pausiert bei einem `429`-Fehler eine Stunde.
 * **Crashsicherer Schlüsselbund:** Der API-Key liegt im GNOME-Schlüsselbund (libsecret), nie in dconf. Im Shell-Prozess wird er ausschließlich ohne Entsperr-Dialog gelesen. Ist der Schlüsselbund noch gesperrt, läuft die Extension normal weiter, zeigt einen Hinweis und versucht es jede Minute erneut, bis er entsperrt ist.
@@ -52,6 +53,14 @@ Voraussetzungen: GNOME Shell 46–50, `libglib2.0-bin` (`glib-compile-schemas`) 
 2. In den Einstellungen von packetbar auf der Seite **Versender** die Zeile **DHL** aufklappen und den API-Key (in den App-Details als *Consumer Key*) eintragen und mit dem Haken bestätigen. Er wird im Schlüsselbund gespeichert. Neu erstellte Keys können laut DHL bis zu 24 Stunden brauchen, bis sie aktiv sind – bis dahin zeigt packetbar einen Auth-Hinweis.
 3. Auf der Seite **Sendungen** die DHL-Sendungsnummer eintragen.
 
+## Einrichtung von 17TRACK (UPS, DPD, GLS)
+
+1. Ein Konto bei [17track.net](https://api.17track.net/) anlegen und in den API-Einstellungen den Security Key erzeugen.
+2. In packetbar auf der Seite **Versender** bei UPS, DPD oder GLS den Key eintragen und bestätigen (gilt für alle drei, Ablage im Schlüsselbund).
+3. Sendungsnummer auf der Seite **Sendungen** eintragen. Beim ersten Abruf wird sie einmalig bei 17TRACK registriert (1 Kontingent), erste Daten liegen laut 17TRACK nach etwa einer Minute vor.
+
+> Die Anbindung ist nach der Dokumentation umgesetzt, aber noch nicht gegen die echte API getestet. Feldnamen der Antwort können abweichen; fehlende Felder werden toleriert.
+
 ## Aufbau
 
 ```
@@ -66,9 +75,10 @@ linux/
 ├── src/
     ├── indicator.js      Panel-Button und Popup mit den Karten
     ├── dhlClient.js      DHL Shipment Tracking API
+    ├── track17Client.js  17TRACK Tracking API (UPS, DPD, GLS)
     ├── shippers.js       Versender-Registry und Prüfung der Datenbank (reine Logik)
     ├── shipperDb.js      Datenbank laden, herunterladen, speichern
-    ├── parcelUtil.js     Sendungsliste, Normalisierung der DHL-Antwort, Formatierung
+    ├── parcelUtil.js     Sendungsliste, Normalisierung der DHL- und 17TRACK-Antworten, Formatierung
     ├── secretStore.js    Schlüsselbund (mit und ohne Entsperr-Dialog)
     └── updater.js        Versionsprüfung über metadata.json auf GitHub
 tests/run.mjs             Tests der reinen Logik und der mitgelieferten Datenbank

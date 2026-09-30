@@ -66,7 +66,7 @@ remove_legacy_extensions() {
 }
 
 # Einträge aus dem GNOME-Schlüsselbund löschen (kann bei gesperrtem Schlüsselbund nach dem Passwort fragen)
-KEYRING_KEYS=("dhl-api-key")
+KEYRING_KEYS=("dhl-api-key" "17track-api-key")
 
 clear_keyring_secrets() {
     if ! command -v gjs &>/dev/null; then

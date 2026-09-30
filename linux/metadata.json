@@ -1,6 +1,6 @@
 {
   "name": "packetbar",
-  "description": "Paketverfolgung in der Top-Bar: zeigt, welche Sendungen (zunächst DHL per API) zu dir unterwegs sind",
+  "description": "Paketverfolgung in der Top-Bar: zeigt, welche Sendungen (DHL per API, UPS/DPD/GLS über 17TRACK) zu dir unterwegs sind",
   "uuid": "packetbar@johnlose.de",
   "shell-version": [
     "46",
@@ -10,7 +10,7 @@
     "50"
   ],
   "url": "https://github.com/joeMJ/packetbar",
-  "version": 4,
-  "version-name": "0.4",
+  "version": 5,
+  "version-name": "0.5",
   "settings-schema": "org.gnome.shell.extensions.packetbar"
 }

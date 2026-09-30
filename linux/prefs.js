@@ -26,6 +26,14 @@ const PROVIDER_UI = {
         portalUrl: 'https://developer.dhl.com/',
         portalLabel: 'DHL Developer Portal',
     },
+    '17track': {
+        secret: '17track-api-key',
+        revisionKey: 'track17-key-revision',
+        keyTitle: 'API-Key (Security Key)',
+        description: 'Ein Key für viele Versender (UPS, DPD, GLS …), von 17TRACK erkannt. Kostenlos: 100 neue Sendungen pro Monat (jede Sendung wird einmal registriert), Statusabfragen kosten kein Kontingent. Key im 17TRACK-Konto unter „Einstellungen → Sicherheit“. Die Sendungsnummern werden an 17TRACK übermittelt.',
+        portalUrl: 'https://api.17track.net/',
+        portalLabel: '17TRACK API',
+    },
 };
 
 export default class PacketBarPreferences extends ExtensionPreferences {
@@ -47,7 +55,7 @@ export default class PacketBarPreferences extends ExtensionPreferences {
         // --- Neue Sendung ---
         const groupAdd = new Adw.PreferencesGroup({
             title: 'Sendung hinzufügen',
-            description: 'Die Sendungsnummer findest du in der Versandbestätigung. DHL wird per API abgefragt, bei den anderen Versendern öffnet ein Klick auf die Karte die Sendungsverfolgung.',
+            description: 'Die Sendungsnummer findest du in der Versandbestätigung. Versender mit Status-API (DHL, UPS, DPD, GLS) werden abgefragt, bei den anderen öffnet ein Klick auf die Karte die Sendungsverfolgung.',
         });
         pageParcels.add(groupAdd);
 
