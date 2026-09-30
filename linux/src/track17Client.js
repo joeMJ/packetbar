@@ -93,6 +93,7 @@ export class Track17Client {
                     location: '',
                     timestampMs: null,
                     eta: '',
+                    registered: true,
                     requests,
                 };
             }
@@ -107,7 +108,15 @@ export class Track17Client {
     }
 
     _parse(res, number) {
-        return parseTrack17TrackInfo(res.httpStatus, res.body, number);
+        const parsed = parseTrack17TrackInfo(res.httpStatus, res.body, number);
+        if (parsed.ok && parsed.state === 'unknown') {
+            // Zur Fehlersuche: nur Feldnamen und Statuswert, keine Inhalte der Sendung
+            const item = res.body?.data?.accepted?.[0] ?? {};
+            const info = item.track_info ?? {};
+            console.log(`[packetbar] 17TRACK ohne auswertbaren Status: Felder=${Object.keys(item)} `
+                + `track_info=${Object.keys(info)} status=${JSON.stringify(info.latest_status?.status)}`);
+        }
+        return parsed;
     }
 
     _parseRegister(res) {

@@ -54,6 +54,7 @@ export default class PacketBarExtension extends Extension {
         this._hint = null;
         this._isOffline = false;
 
+        this._followUpAt = 0;
         this._refreshing = false;
         this._pendingFull = false;
         this._pendingRefresh = false;
@@ -405,6 +406,8 @@ export default class PacketBarExtension extends Extension {
             if (res.ok) {
                 this._cache[parcel.id] = { ...res, source: providerId, fetchedAt: Date.now() };
                 resolved.add(parcel.id);
+                if (res.registered)
+                    this._followUpAt = Date.now();   // frisch registriert: erste Daten kommen nach ca. 1 Minute
             } else if (res.error === 'notfound') {
                 // „Nicht gefunden“ ist noch keine endgültige Antwort: ein weiterer Anbieter kennt
                 // die Sendung vielleicht (z. B. DHL-API kennt manche Nummern nicht). Der Eintrag
@@ -561,6 +564,11 @@ export default class PacketBarExtension extends Extension {
 
             if (offline)
                 this._scheduleRetry(120);
+            else if (this._followUpAt) {
+                // Neu bei 17TRACK registriert → nach 90 s noch einmal abfragen, statt eine Stunde zu warten
+                this._followUpAt = 0;
+                this._scheduleRetry(90);
+            }
         } catch (e) {
             console.warn(`[packetbar] Error in refreshData: ${e.message}`);
             this._isOffline = true;
