@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "version": 4,
+  "version": 5,
   "updated": "2026-09-30",
   "shippers": [
     {
@@ -36,6 +36,11 @@
       "providers": [
         "17track"
       ],
+      "providerOptions": {
+        "17track": {
+          "carrier": 100007
+        }
+      },
       "trackUrl": "https://tracking.dpd.de/parcelstatus?query={number}&locale=de_DE",
       "numberHint": "Paketscheinnummer, meist 14 Ziffern"
     },

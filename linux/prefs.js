@@ -12,7 +12,7 @@ import { UpdateChecker } from './src/updater.js';
 import { loadShippers, updateShippers, shipperInfo } from './src/shipperDb.js';
 import { parseCarrierSources } from './src/shippers.js';
 import {
-    carrierIds, getCarrier, parseParcels, serializeParcels, makeParcel, normalizeNumber,
+    carrierIds, getCarrier, parseParcels, parseCarrierIntervals, INTERVAL_CHOICES, serializeParcels, makeParcel, normalizeNumber,
     validateNumber, parseCache,
 } from './src/parcelUtil.js';
 
@@ -269,8 +269,8 @@ export default class PacketBarPreferences extends ExtensionPreferences {
         groupPanel.add(positionRow);
 
         const intervalRow = new Adw.SpinRow({
-            title: 'Aktualisierungsintervall',
-            subtitle: 'Minuten zwischen zwei Abfragen. Die DHL-API erlaubt 250 Anfragen pro Tag – zugestellte Sendungen werden nicht mehr abgefragt.',
+            title: 'Standard-Aktualisierungsintervall',
+            subtitle: 'Minuten zwischen zwei Abfragen, wenn beim Versender nichts anderes eingestellt ist (Seite „Versender“). Die DHL-API erlaubt 250 Anfragen pro Tag – zugestellte Sendungen werden nicht mehr abgefragt.',
             adjustment: new Gtk.Adjustment({
                 lower: 15,
                 upper: 240,
@@ -353,6 +353,7 @@ export default class PacketBarPreferences extends ExtensionPreferences {
                             .map(id => `${PROVIDER_UI[id].name}-Key ${keyStates[id] ? 'hinterlegt' : 'fehlt'}`)
                             .join(', ');
                     };
+                    addIntervalRow(expander, carrier);
                     if (uis.length > 1)
                         addSourceRow(expander, carrier, uis);
                     for (const providerId of uis)
@@ -383,6 +384,30 @@ export default class PacketBarPreferences extends ExtensionPreferences {
                     subtitle: GLib.markup_escape_text(carrier.numberHint, -1),
                 }));
             }
+        };
+
+        /** Abfrageintervall je Versender; „Standard“ folgt dem allgemeinen Intervall. */
+        const addIntervalRow = (expander, carrier) => {
+            const label = min => (min < 60 ? `${min} Minuten` : min === 60 ? '1 Stunde' : `${min / 60} Stunden`);
+            const row = new Adw.ComboRow({
+                title: 'Abfrageintervall',
+                subtitle: 'Wie oft der Status dieses Versenders abgefragt wird',
+                model: new Gtk.StringList({
+                    strings: [`Standard (${label(settings.get_int('refresh-interval'))})`,
+                        ...INTERVAL_CHOICES.map(label)],
+                }),
+            });
+            const current = parseCarrierIntervals(settings.get_string('carrier-intervals'))[carrier.id];
+            row.selected = current ? INTERVAL_CHOICES.indexOf(current) + 1 : 0;
+            row.connect('notify::selected', () => {
+                const map = parseCarrierIntervals(settings.get_string('carrier-intervals'));
+                if (row.selected === 0)
+                    delete map[carrier.id];
+                else
+                    map[carrier.id] = INTERVAL_CHOICES[row.selected - 1];
+                settings.set_string('carrier-intervals', JSON.stringify(map));
+            });
+            expander.add_row(row);
         };
 
         /** Auswahl der Status-Quelle, wenn ein Versender über mehrere Anbieter abfragbar ist. */

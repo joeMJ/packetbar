@@ -27,6 +27,7 @@
 * **UPS, DPD, GLS über 17TRACK:** Ein einziger Key beim Tracking-Dienst [17TRACK](https://api.17track.net/) deckt diese Versender ab. Kostenlos sind 100 neu registrierte Sendungen pro Monat, Statusabfragen kosten laut [17TRACK](https://help.17track.net/hc/en-us/articles/37575160271001-Quota-Deduction-Standards-and-Rules) kein Kontingent. Die Sendungsnummern gehen dabei an 17TRACK.
 * **Amazon:** Kann eingetragen werden, hat aber keine Status-Abfrage; die Karte öffnet die Bestellübersicht im Browser.
 * **Versender-Datenbank:** Namen und Links der Versender stehen als JSON im Repository und werden automatisch nachgeladen – ohne Ab- und Anmelden (siehe unten).
+* **Abfrageintervall je Versender:** Auf der Seite **Versender** stellst du je Versender ein, wie oft abgefragt wird (15, 30 Minuten, 1, 2, 3 oder 4 Stunden). Ohne eigene Einstellung gilt das Standardintervall der Seite **Sendungen**.
 * **Schonend zur API:** Das Standardlimit von DHL liegt bei 250 Anfragen pro Tag und einer pro Sekunde. packetbar fragt nur alle 15–240 Minuten ab (Standard: 60), wartet zwischen zwei Anfragen, fragt zugestellte Sendungen nie wieder ab, führt einen Tageszähler und pausiert bei einem `429`-Fehler eine Stunde.
 * **Crashsicherer Schlüsselbund:** Der API-Key liegt im GNOME-Schlüsselbund (libsecret), nie in dconf. Im Shell-Prozess wird er ausschließlich ohne Entsperr-Dialog gelesen. Ist der Schlüsselbund noch gesperrt, läuft die Extension normal weiter, zeigt einen Hinweis und versucht es jede Minute erneut, bis er entsperrt ist.
 

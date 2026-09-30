@@ -311,6 +311,7 @@ test('Versender-Datenbank: Provider 17TRACK', () => {
 test('Anbieter-Optionen: 17TRACK-Versendercode für DHL, Eingaben werden bereinigt', () => {
     sh.applyShippers(sh.validateShipperDb(bundledRaw).db);
     assert.deepEqual(u.getCarrier('dhl').providerOptions, { '17track': { carrier: 7041 } });
+    assert.deepEqual(u.getCarrier('dpd').providerOptions, { '17track': { carrier: 100007 } });
     assert.deepEqual(u.getCarrier('ups').providerOptions, {});
     const r = sh.validateShipperDb({ schema: 1, version: 1, shippers: [
         { id: 'a1', name: 'A', trackUrl: 'https://a.b/{number}', providers: ['17track', 'dhl'],
@@ -322,6 +323,33 @@ test('Anbieter-Optionen: 17TRACK-Versendercode für DHL, Eingaben werden bereini
     assert.deepEqual(r.db.shippers[0].providerOptions, { '17track': { carrier: 7041 } });
     assert.deepEqual(r.db.shippers[1].providerOptions, {});
     assert.deepEqual(r.db.shippers[2].providerOptions, {});
+});
+
+test('Abfrageintervall je Versender', () => {
+    assert.deepEqual(u.parseCarrierIntervals('{"dhl":15,"dpd":180,"ups":7,"x":15,"BAD":60,"gls":"60"}'),
+        { dhl: 15, dpd: 180 });
+    assert.deepEqual(u.parseCarrierIntervals('nope'), {});
+    assert.deepEqual(u.parseCarrierIntervals('[15]'), {});
+
+    const now = 10_000_000_000;
+    const min = 60 * 1000;
+    // Noch nie abgefragt → fällig
+    assert.equal(u.isDue({ intervalMin: 60, now }), true);
+    // Zugestellte nie
+    assert.equal(u.isDue({ entry: { state: 'delivered', fetchedAt: 0 }, intervalMin: 15, now }), false);
+    // Intervall wird eingehalten
+    const entry = { state: 'transit', fetchedAt: now - 59 * min };
+    assert.equal(u.isDue({ entry, intervalMin: 60, now }), false);
+    assert.equal(u.isDue({ entry, intervalMin: 15, now }), true);
+    assert.equal(u.isDue({ entry: { ...entry, fetchedAt: now - 60 * min }, intervalMin: 60, now }), true);
+    // Auch ein fehlgeschlagener Versuch zählt (abgelehnter Key wird nicht bei jedem Takt angefragt)
+    assert.equal(u.isDue({ entry, attemptAt: now - 2 * min, intervalMin: 15, now }), false);
+    assert.equal(u.isDue({ attemptAt: now - 2 * min, intervalMin: 15, now }), false);
+    // Frisch registriert: nach 60 s erneut, unabhängig vom Intervall
+    const reg = { state: 'preTransit', registered: true, fetchedAt: now - 61 * 1000 };
+    assert.equal(u.isDue({ entry: reg, attemptAt: now - 61 * 1000, intervalMin: 240, now }), true);
+    assert.equal(u.isDue({ entry: reg, attemptAt: now - 30 * 1000, intervalMin: 240, now }), false);
+    assert.deepEqual(u.INTERVAL_CHOICES, [15, 30, 60, 120, 180, 240]);
 });
 
 test('Status-Quelle: Kette der Anbieter und Einstellung', () => {

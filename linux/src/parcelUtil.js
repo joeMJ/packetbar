@@ -115,6 +115,45 @@ export function isVisible(entry, hideAfterDays, now = Date.now()) {
     return now - since <= hideAfterDays * 86400000;
 }
 
+/** Auswahl für das Abfrageintervall je Versender (Minuten). */
+export const INTERVAL_CHOICES = [15, 30, 60, 120, 180, 240];
+
+/**
+ * Einstellung „Abfrageintervall je Versender“ (JSON in GSettings) lesen:
+ * `{dhl: 15, dpd: 180}`. Ungültige Einträge werden verworfen.
+ */
+export function parseCarrierIntervals(json) {
+    let data;
+    try {
+        data = JSON.parse(json || '{}');
+    } catch (_e) {
+        return {};
+    }
+    const result = {};
+    if (!data || typeof data !== 'object' || Array.isArray(data))
+        return result;
+    for (const [carrier, minutes] of Object.entries(data)) {
+        if (/^[a-z0-9-]{2,20}$/.test(carrier) && INTERVAL_CHOICES.includes(minutes))
+            result[carrier] = minutes;
+    }
+    return result;
+}
+
+/**
+ * Ist eine Sendung wieder zur Abfrage fällig? Zugestellte nie. Als Bezugspunkt zählt der
+ * letzte Versuch (auch ein fehlgeschlagener), damit ein abgelehnter Key nicht bei jedem
+ * Takt neu angefragt wird. Frisch bei 17TRACK registrierte Sendungen sind nach 60 s dran.
+ *
+ * @param {{entry?: object, attemptAt?: number, intervalMin: number, now?: number}} args
+ */
+export function isDue({ entry, attemptAt = 0, intervalMin, now = Date.now() }) {
+    if (entry?.state === 'delivered')
+        return false;
+    const last = Math.max(entry?.fetchedAt ?? 0, attemptAt);
+    const waitMs = entry?.registered ? 60 * 1000 : intervalMin * 60 * 1000;
+    return now - last >= waitMs;
+}
+
 /**
  * Noch nicht zugestellt = zählt im Panel als „unterwegs“.
  */

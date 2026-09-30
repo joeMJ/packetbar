@@ -27,6 +27,12 @@
       <description>Zuordnung Versender → Status-Anbieter ('auto' oder eine feste Wahl wie 'dhl' oder '17track'). Ohne Eintrag gilt 'auto'. Enthält keine Zugangsdaten.</description>
     </key>
 
+    <key name="carrier-intervals" type="s">
+      <default>'{}'</default>
+      <summary>Abfrageintervall je Versender (JSON)</summary>
+      <description>Zuordnung Versender → Minuten zwischen zwei Abfragen (15, 30, 60, 120, 180 oder 240). Ohne Eintrag gilt das allgemeine Intervall.</description>
+    </key>
+
     <key name="hide-delivered-days" type="i">
       <range min="0" max="30"/>
       <default>3</default>
@@ -61,7 +67,7 @@
     <key name="refresh-interval" type="i">
       <range min="15" max="240"/>
       <default>60</default>
-      <summary>Aktualisierungsintervall (Minuten)</summary>
+      <summary>Standard-Aktualisierungsintervall (Minuten)</summary>
       <description>Intervall der Statusabfrage in Minuten. Die DHL-API erlaubt standardmäßig 250 Anfragen pro Tag, daher ist das Minimum 15 Minuten.</description>
     </key>
 

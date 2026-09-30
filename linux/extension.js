@@ -12,7 +12,9 @@ import { DhlClient } from './src/dhlClient.js';
 import { Track17Client } from './src/track17Client.js';
 import { UpdateChecker } from './src/updater.js';
 import { lookupSecretNoPrompt } from './src/secretStore.js';
-import { parseParcels, parseCache, dayKey, getCarrier } from './src/parcelUtil.js';
+import {
+    parseParcels, parseCache, dayKey, getCarrier, parseCarrierIntervals, isDue,
+} from './src/parcelUtil.js';
 import { parseCarrierSources, providerChain } from './src/shippers.js';
 import { loadShippers, updateShippers } from './src/shipperDb.js';
 
@@ -55,6 +57,8 @@ export default class PacketBarExtension extends Extension {
         this._isOffline = false;
 
         this._followUpAt = 0;
+        this._attemptAt = new Map();      // letzter Abfrageversuch je Sendung (nur im Speicher)
+        this._lastMetaCheck = 0;          // letzte Prüfung auf neue Version / Versender-Datenbank
         this._refreshing = false;
         this._pendingFull = false;
         this._pendingRefresh = false;
@@ -244,12 +248,19 @@ export default class PacketBarExtension extends Extension {
         return Math.max(15, this._settings.get_int('refresh-interval'));
     }
 
+    /** Abfrageintervall (Minuten) für einen Versender: eigene Einstellung oder das Standardintervall. */
+    _intervalFor(carrierId) {
+        const own = parseCarrierIntervals(this._settings.get_string('carrier-intervals'))[carrierId];
+        return own ?? this._intervalMinutes();
+    }
+
     _restartTimer() {
         this._clearSource('_timeoutId');
 
+        // Der Takt ist kurz, abgefragt wird aber nur, was laut Intervall des Versenders fällig ist.
         this._timeoutId = GLib.timeout_add_seconds(
             GLib.PRIORITY_DEFAULT,
-            this._intervalMinutes() * 60,
+            60,
             () => {
                 this.refreshData();
                 return GLib.SOURCE_CONTINUE;
@@ -342,13 +353,19 @@ export default class PacketBarExtension extends Extension {
     // Datenabruf
     // -----------------------------------------------------------------------
 
-    _needsFetch(parcel, { onlyMissing }) {
+    _needsFetch(parcel, { onlyMissing, force }) {
         const entry = this._cache[parcel.id];
         if (entry?.state === 'delivered')
             return false;          // zugestellte Sendungen nie erneut abfragen
         if (onlyMissing)
             return !entry;
-        return true;
+        if (force)
+            return true;
+        return isDue({
+            entry,
+            attemptAt: this._attemptAt.get(parcel.id) ?? 0,
+            intervalMin: this._intervalFor(parcel.carrier),
+        });
     }
 
     _saveCache(parcels) {
@@ -396,8 +413,11 @@ export default class PacketBarExtension extends Extension {
             }
 
             const parcel = targets[i];
+            this._attemptAt.set(parcel.id, Date.now());
             const options = getCarrier(parcel.carrier).providerOptions?.[providerId] ?? {};
             const res = await client.fetchShipment(apiKey, parcel.number, this._cancellable, options);
+            if (res.error === 'cancelled' || res.error === 'network')
+                this._attemptAt.delete(parcel.id);   // kein echter Versuch – beim nächsten Takt erneut
             if (res.error === 'cancelled')
                 break;
             if (res.error !== 'network')
@@ -469,12 +489,18 @@ export default class PacketBarExtension extends Extension {
             const updateEnabled = this._settings.get_boolean('update-check-enabled');
             const updateUrl = this._settings.get_string('git-raw-metadata-url');
 
-            const updatePromise = updateEnabled && !onlyMissing
+            // Versions- und Datenbankprüfung höchstens einmal pro Stunde (der Takt ist kurz)
+            const metaDue = !onlyMissing
+                && (opts.force || Date.now() - this._lastMetaCheck >= 60 * 60 * 1000);
+            if (metaDue)
+                this._lastMetaCheck = Date.now();
+
+            const updatePromise = updateEnabled && metaDue
                 ? this._updateChecker.checkForUpdates(updateUrl, this._cancellable)
                 : Promise.resolve(null);
 
             // Versender-Datenbank: reine Daten, wirkt sofort (kein Ab-/Anmelden nötig)
-            const shipperPromise = this._settings.get_boolean('shipper-db-auto-update') && !onlyMissing
+            const shipperPromise = this._settings.get_boolean('shipper-db-auto-update') && metaDue
                 ? updateShippers(this._settings.get_string('shipper-db-url'), this._cancellable)
                 : Promise.resolve(null);
 
@@ -486,7 +512,7 @@ export default class PacketBarExtension extends Extension {
             // Der erste kommt zuerst dran, kann er nicht antworten (z. B. Key fehlt oder wird
             // abgelehnt), springt der nächste ein.
             const sources = parseCarrierSources(this._settings.get_string('carrier-sources'));
-            const pending = parcels.filter(p => this._needsFetch(p, { onlyMissing }));
+            const pending = parcels.filter(p => this._needsFetch(p, { onlyMissing, force: !!opts.force }));
             const chains = new Map(pending.map(p => [p.id,
                 providerChain(getCarrier(p.carrier), sources[p.carrier] ?? 'auto')
                     .filter(id => this._providers[id])]));
@@ -543,12 +569,16 @@ export default class PacketBarExtension extends Extension {
             if (!this._settings || !this._indicator)
                 return;
 
-            this._hint = hint;
-            this._isOffline = offline;
-            if (fetched && !offline)
-                this._lastTimestamp = new Date();
+            // Ohne Abfrage (nichts fällig) bleiben Hinweis und Stand unverändert
+            if (fetched) {
+                this._hint = hint;
+                this._isOffline = offline;
+                if (!offline)
+                    this._lastTimestamp = new Date();
+            }
 
-            this._saveCache(parcels);
+            if (fetched || opts.force || onlyMissing)
+                this._saveCache(parcels);
 
             const updateStatus = await updatePromise;
             if (updateStatus)
