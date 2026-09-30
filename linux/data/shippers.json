@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "version": 3,
+  "version": 4,
   "updated": "2026-09-30",
   "shippers": [
     {
@@ -11,6 +11,11 @@
         "dhl",
         "17track"
       ],
+      "providerOptions": {
+        "17track": {
+          "carrier": 7041
+        }
+      },
       "trackUrl": "https://www.dhl.de/de/privatkunden/pakete-empfangen/verfolgen.html?piececode={number}",
       "numberHint": "Sendungsnummer aus der Versandbestätigung, z. B. 00340434161094042557 oder JJD…"
     },

@@ -395,7 +395,8 @@ export default class PacketBarExtension extends Extension {
             }
 
             const parcel = targets[i];
-            const res = await client.fetchShipment(apiKey, parcel.number, this._cancellable);
+            const options = getCarrier(parcel.carrier).providerOptions?.[providerId] ?? {};
+            const res = await client.fetchShipment(apiKey, parcel.number, this._cancellable, options);
             if (res.error === 'cancelled')
                 break;
             if (res.error !== 'network')

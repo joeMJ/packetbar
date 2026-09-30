@@ -66,16 +66,19 @@ export class Track17Client {
      * @param {string} apiKey
      * @param {string} number
      * @param {Gio.Cancellable} [cancellable=null]
+     * @param {{carrier?: number}} [options] fester 17TRACK-Versendercode (z. B. 7041 = DHL Paket),
+     *   für Nummern, bei denen die automatische Erkennung nichts findet
      */
-    async fetchShipment(apiKey, number, cancellable = null) {
+    async fetchShipment(apiKey, number, cancellable = null, options = {}) {
         let requests = 0;
+        const item = Number.isInteger(options?.carrier) ? { number, carrier: options.carrier } : { number };
         try {
-            let res = await this._post(apiKey, 'gettrackinfo', [{ number }], cancellable);
+            let res = await this._post(apiKey, 'gettrackinfo', [item], cancellable);
             requests++;
             let parsed = this._parse(res, number);
 
             if (parsed.notRegistered) {
-                const reg = await this._post(apiKey, 'register', [{ number }], cancellable);
+                const reg = await this._post(apiKey, 'register', [item], cancellable);
                 requests++;
                 const regParsed = this._parseRegister(reg);
                 if (!regParsed.ok)

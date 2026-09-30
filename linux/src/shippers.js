@@ -62,6 +62,17 @@ function validateShipper(item) {
     const wanted = Array.isArray(item.providers) ? item.providers : [item.provider];
     const providers = [...new Set(wanted.filter(p => PROVIDERS.includes(p)))];
 
+    // Feste Anbieter-Einstellungen je Versender, z. B. der 17TRACK-Versendercode. Nur Zahlen,
+    // nur bekannte Anbieter – keine Adressen, keine Schlüssel.
+    const providerOptions = {};
+    if (item.providerOptions && typeof item.providerOptions === 'object' && !Array.isArray(item.providerOptions)) {
+        for (const id of providers) {
+            const code = item.providerOptions[id]?.carrier;
+            if (Number.isInteger(code) && code > 0 && code < 1000000)
+                providerOptions[id] = { carrier: code };
+        }
+    }
+
     const hint = item.numberHint;
     return {
         id: item.id,
@@ -69,6 +80,7 @@ function validateShipper(item) {
         trackUrl: item.trackUrl,
         providers,
         provider: providers[0] ?? null,
+        providerOptions,
         numberHint: isText(hint, 160) ? hint : '',
     };
 }
@@ -141,6 +153,7 @@ export function applyShippers(db) {
             name: s.name,
             provider: s.provider,
             providers: s.providers,
+            providerOptions: s.providerOptions,
             api: s.providers.length > 0,
             numberHint: s.numberHint,
             trackUrl: s.trackUrl,
@@ -176,6 +189,7 @@ export function getCarrier(id) {
         name: id,
         provider: null,
         providers: [],
+        providerOptions: {},
         api: false,
         numberHint: '',
         trackUrl: '',

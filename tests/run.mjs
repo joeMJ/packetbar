@@ -79,7 +79,7 @@ test('gültige Datenbank wird bereinigt übernommen', () => {
     assert.equal(r.ok, true);
     assert.deepEqual(Object.keys(r.db).sort(), ['schema', 'shippers', 'updated', 'version']);
     assert.deepEqual(Object.keys(r.db.shippers[0]).sort(),
-        ['id', 'name', 'numberHint', 'provider', 'providers', 'trackUrl']);
+        ['id', 'name', 'numberHint', 'provider', 'providerOptions', 'providers', 'trackUrl']);
 });
 
 test('Strukturfehler lehnen die ganze Datenbank ab', () => {
@@ -306,6 +306,22 @@ test('Versender-Datenbank: Provider 17TRACK', () => {
     // DHL ist über beide Anbieter abfragbar, DHL-API zuerst
     assert.deepEqual(byId.dhl.providers, ['dhl', '17track']);
     assert.deepEqual(byId.ups.providers, ['17track']);
+});
+
+test('Anbieter-Optionen: 17TRACK-Versendercode für DHL, Eingaben werden bereinigt', () => {
+    sh.applyShippers(sh.validateShipperDb(bundledRaw).db);
+    assert.deepEqual(u.getCarrier('dhl').providerOptions, { '17track': { carrier: 7041 } });
+    assert.deepEqual(u.getCarrier('ups').providerOptions, {});
+    const r = sh.validateShipperDb({ schema: 1, version: 1, shippers: [
+        { id: 'a1', name: 'A', trackUrl: 'https://a.b/{number}', providers: ['17track', 'dhl'],
+            providerOptions: { '17track': { carrier: 7041, url: 'https://evil' }, dhl: { carrier: 'x' }, evil: { carrier: 1 } } },
+        { id: 'b1', name: 'B', trackUrl: 'https://a.b/{number}', providers: ['17track'],
+            providerOptions: { '17track': { carrier: -5 } } },
+        { id: 'c1', name: 'C', trackUrl: 'https://a.b/{number}', providers: ['dhl'], providerOptions: [] },
+    ] });
+    assert.deepEqual(r.db.shippers[0].providerOptions, { '17track': { carrier: 7041 } });
+    assert.deepEqual(r.db.shippers[1].providerOptions, {});
+    assert.deepEqual(r.db.shippers[2].providerOptions, {});
 });
 
 test('Status-Quelle: Kette der Anbieter und Einstellung', () => {
