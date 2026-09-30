@@ -20,6 +20,7 @@
 
 * **Panel:** Paket-Symbol mit der Anzahl der Sendungen, die noch unterwegs sind. Bei einem Zustellproblem färbt sich das Symbol rot.
 * **Popup im Card-Look:** Pro Sendung eine Karte mit Bezeichnung, Versender, Status, letztem Ereignis samt Ort und Zeit und der voraussichtlichen Zustellung. Ein Klick auf die Karte öffnet die Sendungsverfolgung des Versenders.
+* **Einstellungen:** Die Sendungen sind nach Versender gruppiert und aufklappbar (wie die Geräte in snmpbar), mit Anzahl, Status-Zusammenfassung und einem Knopf zum Entfernen zugestellter Sendungen.
 * **DHL per API:** Der Status wird über die [DHL Shipment Tracking API (Unified)](https://developer.dhl.com/api-reference/shipment-tracking) abgefragt.
 * **Weitere Versender:** UPS, DPD, GLS und Amazon können eingetragen werden. Für sie gibt es (noch) keine Status-Abfrage, die Karte öffnet die Sendungsverfolgung im Browser.
 * **Schonend zur API:** Das Standardlimit von DHL liegt bei 250 Anfragen pro Tag und einer pro Sekunde. packetbar fragt nur alle 15–240 Minuten ab (Standard: 60), wartet zwischen zwei Anfragen, fragt zugestellte Sendungen nie wieder ab, führt einen Tageszähler und pausiert bei einem `429`-Fehler eine Stunde.
@@ -58,6 +59,7 @@ linux/
 ├── stylesheet.css        Card-Design
 ├── metadata.json
 ├── schemas/              GSettings-Schema
+├── icons/                Eigenes Paket-Symbol (Würfel)
 └── src/
     ├── indicator.js      Panel-Button und Popup mit den Karten
     ├── dhlClient.js      DHL Shipment Tracking API

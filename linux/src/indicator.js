@@ -6,6 +6,7 @@ import GObject from 'gi://GObject';
 import St from 'gi://St';
 import Clutter from 'gi://Clutter';
 import Gio from 'gi://Gio';
+import GLib from 'gi://GLib';
 import Pango from 'gi://Pango';
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
@@ -16,7 +17,7 @@ import {
 
 const STATE_ICONS = {
     preTransit: 'document-send-symbolic',
-    transit: 'package-x-generic-symbolic',
+    transit: null,
     delivered: 'emblem-ok-symbolic',
     failure: 'dialog-warning-symbolic',
     unknown: 'dialog-question-symbolic',
@@ -38,6 +39,13 @@ class PacketIndicator extends PanelMenu.Button {
         this._extension = extension;
         this._settings = extension.getSettings();
 
+        // Eigenes Paket-Symbol (Würfel) aus icons/ – das Standard-Icon von Adwaita
+        // sieht eher nach Archiv aus.
+        this._packageIcon = new Gio.FileIcon({
+            file: Gio.File.new_for_path(
+                GLib.build_filenamev([extension.path, 'icons', 'packetbar-symbolic.svg'])),
+        });
+
         // 1. Panel Box (Icon + Anzahl)
         this._panelBox = new St.BoxLayout({
             style_class: 'packetbar-panel-box',
@@ -48,7 +56,7 @@ class PacketIndicator extends PanelMenu.Button {
         });
 
         this._panelIcon = new St.Icon({
-            icon_name: 'package-x-generic-symbolic',
+            gicon: this._packageIcon,
             style_class: 'system-status-icon packetbar-panel-icon',
         });
         this._panelBox.add_child(this._panelIcon);
@@ -65,6 +73,14 @@ class PacketIndicator extends PanelMenu.Button {
 
         // 2. Popup Menü Aufbau
         this._buildMenu();
+    }
+
+    /** Setzt ein Themen-Icon oder (bei null) das eigene Paket-Symbol. */
+    _setIcon(icon, iconName) {
+        if (iconName)
+            icon.icon_name = iconName;
+        else
+            icon.gicon = this._packageIcon;
     }
 
     _buildMenu() {
@@ -218,12 +234,14 @@ class PacketIndicator extends PanelMenu.Button {
         });
         card.set_child(row);
 
-        row.add_child(new St.Icon({
-            icon_name: hasApi && entry ? STATE_ICONS[state] : 'package-x-generic-symbolic',
+        const iconName = hasApi && entry ? STATE_ICONS[state] : null;
+        const cardIcon = new St.Icon({
             icon_size: 28,
             style_class: 'packetbar-card-icon',
             y_align: Clutter.ActorAlign.CENTER,
-        }));
+        });
+        this._setIcon(cardIcon, iconName);
+        row.add_child(cardIcon);
 
         const info = new St.BoxLayout({
             vertical: true,
@@ -318,7 +336,7 @@ class PacketIndicator extends PanelMenu.Button {
 
         this._panelLabel.text = String(active);
         this._panelLabel.visible = active > 0;
-        this._panelIcon.icon_name = hasProblem ? 'dialog-warning-symbolic' : 'package-x-generic-symbolic';
+        this._setIcon(this._panelIcon, hasProblem ? 'dialog-warning-symbolic' : null);
         if (hasProblem)
             this._panelBox.add_style_class_name('packetbar-panel-problem');
         else

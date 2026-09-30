@@ -24,7 +24,7 @@ export default class PacketBarPreferences extends ExtensionPreferences {
         // ==========================================
         const pageParcels = new Adw.PreferencesPage({
             title: 'Sendungen',
-            icon_name: 'package-x-generic-symbolic',
+            icon_name: 'view-list-symbolic',
         });
         window.add(pageParcels);
 
@@ -63,13 +63,22 @@ export default class PacketBarPreferences extends ExtensionPreferences {
         addRow.activatable_widget = addBtn;
         groupAdd.add(addRow);
 
-        // --- Liste ---
+        // --- Liste: je Versender eine aufklappbare Zeile ---
         const groupList = new Adw.PreferencesGroup({
             title: 'Eingetragene Sendungen',
         });
         pageParcels.add(groupList);
 
+        // Aufgeklappte Versender merken, damit die Liste beim Neuaufbau (z. B. nach
+        // einem Löschen oder einer neuen Statusabfrage) nicht wieder zuklappt.
+        const expandedCarriers = new Set();
         let listRows = [];
+
+        const removeParcels = predicate => {
+            const rest = parseParcels(settings.get_string('parcels')).filter(p => !predicate(p));
+            settings.set_string('parcels', serializeParcels(rest));
+        };
+
         const rebuildList = () => {
             for (const row of listRows)
                 groupList.remove(row);
@@ -82,28 +91,74 @@ export default class PacketBarPreferences extends ExtensionPreferences {
                 ? 'Noch keine Sendungen eingetragen.'
                 : `${parcels.length} Sendung${parcels.length === 1 ? '' : 'en'}`;
 
-            for (const parcel of parcels) {
-                const carrier = CARRIERS[parcel.carrier];
-                const entry = cache[parcel.id];
-                const row = new Adw.ActionRow({
-                    title: GLib.markup_escape_text(parcel.label || parcel.number, -1),
-                    subtitle: GLib.markup_escape_text(
-                        `${carrier.name} • ${parcel.number}${entry?.statusText ? ` • ${entry.statusText}` : ''}`, -1),
+            for (const carrierId of CARRIER_IDS) {
+                const carrier = CARRIERS[carrierId];
+                const own = parcels.filter(p => p.carrier === carrierId);
+                if (own.length === 0)
+                    continue;
+
+                const delivered = own.filter(p => cache[p.id]?.state === 'delivered').length;
+                const active = own.length - delivered;
+                const parts = [carrier.api ? 'Status per API' : 'nur Link zur Sendungsverfolgung'];
+                parts.push(`${active} unterwegs`);
+                if (delivered > 0)
+                    parts.push(`${delivered} zugestellt`);
+
+                const expander = new Adw.ExpanderRow({
+                    title: GLib.markup_escape_text(carrier.name, -1),
+                    subtitle: GLib.markup_escape_text(parts.join(' • '), -1),
+                    show_enable_switch: false,
+                    expanded: expandedCarriers.has(carrierId),
                 });
-                const removeBtn = new Gtk.Button({
-                    icon_name: 'user-trash-symbolic',
+                expander.connect('notify::expanded', () => {
+                    if (expander.expanded)
+                        expandedCarriers.add(carrierId);
+                    else
+                        expandedCarriers.delete(carrierId);
+                });
+
+                // Anzahl als Kennzeichen rechts neben dem Pfeil
+                expander.add_suffix(new Gtk.Label({
+                    label: String(own.length),
                     valign: Gtk.Align.CENTER,
-                    tooltip_text: 'Sendung entfernen',
-                    css_classes: ['flat'],
-                });
-                removeBtn.connect('clicked', () => {
-                    const rest = parseParcels(settings.get_string('parcels'))
-                        .filter(p => p.id !== parcel.id);
-                    settings.set_string('parcels', serializeParcels(rest));
-                });
-                row.add_suffix(removeBtn);
-                groupList.add(row);
-                listRows.push(row);
+                    css_classes: ['dim-label', 'numeric'],
+                }));
+
+                for (const parcel of own) {
+                    const entry = cache[parcel.id];
+                    const row = new Adw.ActionRow({
+                        title: GLib.markup_escape_text(parcel.label || parcel.number, -1),
+                        subtitle: GLib.markup_escape_text(
+                            `${parcel.label ? `${parcel.number} • ` : ''}${entry?.statusText ?? 'noch nicht abgefragt'}`, -1),
+                    });
+                    const removeBtn = new Gtk.Button({
+                        icon_name: 'user-trash-symbolic',
+                        valign: Gtk.Align.CENTER,
+                        tooltip_text: 'Sendung entfernen',
+                        css_classes: ['flat'],
+                    });
+                    removeBtn.connect('clicked', () => removeParcels(p => p.id === parcel.id));
+                    row.add_suffix(removeBtn);
+                    expander.add_row(row);
+                }
+
+                if (delivered > 0) {
+                    const cleanRow = new Adw.ActionRow({
+                        title: 'Zugestellte Sendungen entfernen',
+                        subtitle: `${delivered} zugestellte Sendung${delivered === 1 ? '' : 'en'} von ${carrier.name} aus der Liste löschen`,
+                    });
+                    const cleanBtn = new Gtk.Button({
+                        label: 'Entfernen',
+                        valign: Gtk.Align.CENTER,
+                    });
+                    cleanBtn.connect('clicked', () => removeParcels(p =>
+                        p.carrier === carrierId && cache[p.id]?.state === 'delivered'));
+                    cleanRow.add_suffix(cleanBtn);
+                    expander.add_row(cleanRow);
+                }
+
+                groupList.add(expander);
+                listRows.push(expander);
             }
         };
         rebuildList();
@@ -133,6 +188,7 @@ export default class PacketBarPreferences extends ExtensionPreferences {
                 return;
             }
             parcels.push(parcel);
+            expandedCarriers.add(parcel.carrier);
             settings.set_string('parcels', serializeParcels(parcels));
 
             numberRow.text = '';
