@@ -23,6 +23,7 @@
 * **Einstellungen:** Die Sendungen sind nach Versender gruppiert und aufklappbar (wie die Geräte in snmpbar), mit Anzahl, Status-Zusammenfassung und einem Knopf zum Entfernen zugestellter Sendungen.
 * **DHL per API:** Der Status wird über die [DHL Shipment Tracking API (Unified)](https://developer.dhl.com/api-reference/shipment-tracking) abgefragt.
 * **Weitere Versender:** UPS, DPD, GLS und Amazon können eingetragen werden. Für sie gibt es (noch) keine Status-Abfrage, die Karte öffnet die Sendungsverfolgung im Browser.
+* **Versender-Datenbank:** Namen und Links der Versender stehen als JSON im Repository und werden automatisch nachgeladen – ohne Ab- und Anmelden (siehe unten).
 * **Schonend zur API:** Das Standardlimit von DHL liegt bei 250 Anfragen pro Tag und einer pro Sekunde. packetbar fragt nur alle 15–240 Minuten ab (Standard: 60), wartet zwischen zwei Anfragen, fragt zugestellte Sendungen nie wieder ab, führt einen Tageszähler und pausiert bei einem `429`-Fehler eine Stunde.
 * **Crashsicherer Schlüsselbund:** Der API-Key liegt im GNOME-Schlüsselbund (libsecret), nie in dconf. Im Shell-Prozess wird er ausschließlich ohne Entsperr-Dialog gelesen. Ist der Schlüsselbund noch gesperrt, läuft die Extension normal weiter, zeigt einen Hinweis und versucht es jede Minute erneut, bis er entsperrt ist.
 
@@ -60,12 +61,58 @@ linux/
 ├── metadata.json
 ├── schemas/              GSettings-Schema
 ├── icons/                Eigenes Paket-Symbol (Würfel)
-└── src/
+├── data/shippers.json    Versender-Datenbank (mitgeliefert, wird per Update nachgeladen)
+├── src/
     ├── indicator.js      Panel-Button und Popup mit den Karten
     ├── dhlClient.js      DHL Shipment Tracking API
-    ├── parcelUtil.js     Versender-Register, Sendungsliste, Normalisierung, Formatierung
+    ├── shippers.js       Versender-Registry und Prüfung der Datenbank (reine Logik)
+    ├── shipperDb.js      Datenbank laden, herunterladen, speichern
+    ├── parcelUtil.js     Sendungsliste, Normalisierung der DHL-Antwort, Formatierung
     ├── secretStore.js    Schlüsselbund (mit und ohne Entsperr-Dialog)
     └── updater.js        Versionsprüfung über metadata.json auf GitHub
+tests/run.mjs             Tests der reinen Logik und der mitgelieferten Datenbank
 ```
 
-Weitere Versender mit Status-API lassen sich ergänzen, indem man einen Client in `src/` anlegt, ihn in `extension.js` unter `_clients` einträgt und im Register `CARRIERS` in `parcelUtil.js` `api: true` und einen `secret`-Namen setzt.
+## Versender-Datenbank
+
+Welche Versender es gibt, steht in [`linux/data/shippers.json`](linux/data/shippers.json):
+
+```json
+{
+  "schema": 1,
+  "version": 1,
+  "updated": "2026-09-30",
+  "shippers": [
+    {
+      "id": "dhl",
+      "name": "DHL",
+      "provider": "dhl",
+      "trackUrl": "https://www.dhl.de/…/verfolgen.html?piececode={number}",
+      "numberHint": "Sendungsnummer aus der Versandbestätigung"
+    }
+  ]
+}
+```
+
+| Feld | Bedeutung |
+| :--- | :--- |
+| `schema` | Format der Datei. Eine Extension lehnt ein höheres Schema als das bekannte ab. |
+| `version` | Wird bei jeder Änderung um 1 erhöht. Nur eine höhere Version ersetzt die installierte. |
+| `id` | Kurzname, `a-z 0-9 -`, 2–20 Zeichen, eindeutig. |
+| `trackUrl` | Link zur Sendungsverfolgung, muss mit `https://` beginnen. `{number}` wird durch die (URL-kodierte) Sendungsnummer ersetzt. |
+| `provider` | Optional: Status-Anbieter, für den der Code einen Client mitbringt (derzeit nur `dhl`). Ohne Angabe gibt es nur den Link. |
+| `numberHint` | Optional: Hinweis zum Nummernformat, wird beim Hinzufügen angezeigt. |
+
+**So kommt ein neuer Versender dazu:** Eintrag in `shippers.json` ergänzen, `version` erhöhen, `node tests/run.mjs` ausführen, pushen. Alle Installationen holen sich die Datenbank bei der nächsten Abfrage oder über *Einstellungen → Updates → Versender-Datenbank*, **ohne Ab- und Anmelden**. Die heruntergeladene Datei liegt in `~/.local/share/packetbar/shippers.json`, übersteht Programm-Updates und wird nur von `./uninstall.sh` entfernt. Ist die mitgelieferte Datenbank neuer als die heruntergeladene, gilt die mitgelieferte.
+
+**Was die Datenbank bewusst nicht kann:** Sie enthält nur Daten. API-Endpunkte und der Schlüsselbund-Eintrag eines Anbieters sind fest im Code hinterlegt, `provider` verweist nur darauf. Eine manipulierte Datenbank kann deshalb keine API-Keys an einen fremden Server schicken. Ungültige Einträge werden einzeln übersprungen, Links ohne `https://` abgelehnt und Downloads über 256 KB verworfen. Wird ein Versender aus der Datenbank entfernt, bleiben bereits eingetragene Sendungen erhalten.
+
+**Was ein Ab- und Anmelden weiterhin braucht:** Neuer *Programmcode*, also etwa ein Client für die UPS-API. GNOME Shell lädt JavaScript unter Wayland nur beim Sitzungsstart neu. Die Einstellungsseite ist davon nicht betroffen, sie läuft in einem eigenen Prozess und lädt bei jedem Öffnen den aktuellen Stand.
+
+## Entwicklung
+
+```bash
+node tests/run.mjs    # prüft die reine Logik und die mitgelieferte Versender-Datenbank
+```
+
+Einen weiteren Versender mit Status-API ergänzt man, indem man einen Client in `src/` anlegt, ihn in `extension.js` unter `_providers` einträgt (mit dem Namen des Schlüsselbund-Eintrags, der auch in `secretStore.js` und `PROVIDERS` in `shippers.js` bekannt sein muss) und in `shippers.json` per `provider` darauf verweist.

@@ -8,16 +8,22 @@ import Gtk from 'gi://Gtk';
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 import { lookupSecret, storeSecret, clearSecret } from './src/secretStore.js';
+import { UpdateChecker } from './src/updater.js';
+import { loadShippers, updateShippers, shipperInfo } from './src/shipperDb.js';
 import {
-    CARRIERS, CARRIER_IDS, parseParcels, serializeParcels, makeParcel, normalizeNumber,
+    carrierIds, getCarrier, parseParcels, serializeParcels, makeParcel, normalizeNumber,
     validateNumber, parseCache,
 } from './src/parcelUtil.js';
 
-const DHL_SECRET = CARRIERS.dhl.secret;
+// Schlüsselbund-Eintrag des DHL-Keys (fest im Code, siehe extension.js)
+const DHL_SECRET = 'dhl-api-key';
 
 export default class PacketBarPreferences extends ExtensionPreferences {
     fillPreferencesWindow(window) {
         const settings = this.getSettings();
+
+        // Versender-Datenbank (mitgeliefert oder heruntergeladen) laden
+        loadShippers(this.path);
 
         // ==========================================
         // Seite 1: Sendungen & Anzeige
@@ -35,13 +41,18 @@ export default class PacketBarPreferences extends ExtensionPreferences {
         });
         pageParcels.add(groupAdd);
 
-        const carrierRow = new Adw.ComboRow({
-            title: 'Versender',
-            model: new Gtk.StringList({
-                strings: CARRIER_IDS.map(id =>
-                    CARRIERS[id].api ? `${CARRIERS[id].name} (Status per API)` : `${CARRIERS[id].name} (nur Link)`),
-            }),
-        });
+        const carrierLabel = id => {
+            const c = getCarrier(id);
+            return c.api ? `${c.name} (Status per API)` : `${c.name} (nur Link)`;
+        };
+        const carrierRow = new Adw.ComboRow({ title: 'Versender' });
+        const fillCarrierRow = () => {
+            const previous = carrierIds()[carrierRow.selected];
+            carrierRow.model = new Gtk.StringList({ strings: carrierIds().map(carrierLabel) });
+            const idx = carrierIds().indexOf(previous);
+            carrierRow.selected = idx >= 0 ? idx : 0;
+        };
+        fillCarrierRow();
         groupAdd.add(carrierRow);
 
         const numberRow = new Adw.EntryRow({ title: 'Sendungsnummer' });
@@ -62,6 +73,14 @@ export default class PacketBarPreferences extends ExtensionPreferences {
         addRow.add_suffix(addBtn);
         addRow.activatable_widget = addBtn;
         groupAdd.add(addRow);
+
+        // Hinweis zum Nummernformat des gewählten Versenders (aus der Datenbank)
+        const ADD_SUBTITLE = 'Doppelte Sendungsnummern werden erkannt';
+        const showCarrierHint = () => {
+            addRow.subtitle = getCarrier(carrierIds()[carrierRow.selected]).numberHint || ADD_SUBTITLE;
+        };
+        carrierRow.connect('notify::selected', showCarrierHint);
+        showCarrierHint();
 
         // --- Liste: je Versender eine aufklappbare Zeile ---
         const groupList = new Adw.PreferencesGroup({
@@ -91,15 +110,20 @@ export default class PacketBarPreferences extends ExtensionPreferences {
                 ? 'Noch keine Sendungen eingetragen.'
                 : `${parcels.length} Sendung${parcels.length === 1 ? '' : 'en'}`;
 
-            for (const carrierId of CARRIER_IDS) {
-                const carrier = CARRIERS[carrierId];
+            // Versender in Datenbank-Reihenfolge, danach solche, die nicht mehr in der
+            // Datenbank stehen (ihre Sendungen bleiben erhalten und löschbar)
+            const orphanIds = [...new Set(parcels.map(p => p.carrier))].filter(id => !carrierIds().includes(id));
+            for (const carrierId of [...carrierIds(), ...orphanIds]) {
+                const carrier = getCarrier(carrierId);
                 const own = parcels.filter(p => p.carrier === carrierId);
                 if (own.length === 0)
                     continue;
 
                 const delivered = own.filter(p => cache[p.id]?.state === 'delivered').length;
                 const active = own.length - delivered;
-                const parts = [carrier.api ? 'Status per API' : 'nur Link zur Sendungsverfolgung'];
+                const parts = [carrier.unknown
+                    ? 'nicht mehr in der Versender-Datenbank'
+                    : carrier.api ? 'Status per API' : 'nur Link zur Sendungsverfolgung'];
                 parts.push(`${active} unterwegs`);
                 if (delivered > 0)
                     parts.push(`${delivered} zugestellt`);
@@ -180,7 +204,11 @@ export default class PacketBarPreferences extends ExtensionPreferences {
             }
             numberRow.remove_css_class('error');
 
-            const carrierId = CARRIER_IDS[carrierRow.selected] ?? 'dhl';
+            const carrierId = carrierIds()[carrierRow.selected];
+            if (!carrierId) {
+                addRow.subtitle = 'Kein Versender ausgewählt';
+                return;
+            }
             const parcel = makeParcel(carrierId, number, labelRow.text);
             const parcels = parseParcels(settings.get_string('parcels'));
             if (parcels.some(p => p.id === parcel.id)) {
@@ -341,15 +369,20 @@ export default class PacketBarPreferences extends ExtensionPreferences {
         });
         window.add(pageUpdate);
 
+        const installedName = this.metadata['version-name'] ?? String(this.metadata.version || 1);
+        const installedVersion = Number(this.metadata.version || 1);
+        const updateCommand = 'curl -fsSL https://raw.githubusercontent.com/joeMJ/packetbar/main/install.sh | bash';
+
+        // --- Programm (Git) ---
         const groupUpdate = new Adw.PreferencesGroup({
-            title: 'Git Aktualitätsprüfung',
-            description: 'Prüfung auf neue Versionen über GitHub (github.com/joeMJ/packetbar)',
+            title: 'Programm',
+            description: 'Prüfung auf neue Versionen über GitHub (github.com/joeMJ/packetbar). Neuer Programmcode wird erst nach dem Ab- und Anmelden aktiv.',
         });
         pageUpdate.add(groupUpdate);
 
         const updateEnableRow = new Adw.SwitchRow({
             title: 'Automatische Versionsprüfung',
-            subtitle: 'Prüft regelmäßig, ob im Git-Repository ein Update vorliegt',
+            subtitle: 'Prüft regelmäßig, ob im Git-Repository ein Update vorliegt (Hinweis im Popup)',
         });
         settings.bind('update-check-enabled', updateEnableRow, 'active', Gio.SettingsBindFlags.DEFAULT);
         groupUpdate.add(updateEnableRow);
@@ -362,12 +395,20 @@ export default class PacketBarPreferences extends ExtensionPreferences {
         settings.bind('git-raw-metadata-url', gitRawUrlRow, 'text', Gio.SettingsBindFlags.DEFAULT);
         groupUpdate.add(gitRawUrlRow);
 
-        const updateCommand = 'curl -fsSL https://raw.githubusercontent.com/joeMJ/packetbar/main/install.sh | bash';
-        const versionName = this.metadata['version-name'] ?? String(this.metadata.version || 1);
+        // Anzeige: installiert / verfügbar
+        const statusRow = new Adw.ActionRow({
+            title: `Installierte Version: v${installedName}`,
+            subtitle: 'Noch nicht geprüft',
+        });
+        const statusIcon = new Gtk.Image({ icon_name: 'view-refresh-symbolic', valign: Gtk.Align.CENTER });
+        statusRow.add_prefix(statusIcon);
+        const checkBtn = new Gtk.Button({ label: 'Jetzt prüfen', valign: Gtk.Align.CENTER });
+        statusRow.add_suffix(checkBtn);
+        groupUpdate.add(statusRow);
 
-        const infoRow = new Adw.ActionRow({
-            title: `Installierte Version: v${versionName}`,
-            subtitle: `Aktualisieren im Terminal: ${updateCommand}`,
+        const installRow = new Adw.ActionRow({
+            title: 'Installieren / aktualisieren',
+            subtitle: `Im Terminal: ${updateCommand}`,
             subtitle_selectable: true,
         });
         const updateBtn = new Gtk.Button({
@@ -379,10 +420,105 @@ export default class PacketBarPreferences extends ExtensionPreferences {
             const error = launchInTerminal(
                 `${updateCommand}; echo; read -r -p 'Fertig – danach ab- und wieder anmelden. Enter schließt das Fenster.'`);
             if (error)
-                infoRow.subtitle = `${error} – bitte manuell ausführen: ${updateCommand}`;
+                installRow.subtitle = `${error} – bitte manuell ausführen: ${updateCommand}`;
         });
-        infoRow.add_suffix(updateBtn);
-        groupUpdate.add(infoRow);
+        installRow.add_suffix(updateBtn);
+        groupUpdate.add(installRow);
+
+        const checker = new UpdateChecker(installedVersion);
+        const setStatus = (icon, subtitle, cssClass = null) => {
+            statusIcon.icon_name = icon;
+            for (const c of ['success', 'warning', 'error'])
+                statusIcon.remove_css_class(c);
+            if (cssClass)
+                statusIcon.add_css_class(cssClass);
+            statusRow.subtitle = GLib.markup_escape_text(subtitle, -1);
+        };
+        const checkProgram = async () => {
+            checkBtn.sensitive = false;
+            setStatus('view-refresh-symbolic', 'Prüfe auf neue Version …');
+            try {
+                const r = await checker.checkForUpdates(settings.get_string('git-raw-metadata-url'));
+                if (r.error)
+                    setStatus('dialog-warning-symbolic', `Prüfung fehlgeschlagen: ${r.error}`, 'warning');
+                else if (r.updateAvailable)
+                    setStatus('software-update-available-symbolic',
+                        `Neue Version verfügbar: v${r.remoteVersionName} (installiert: v${installedName}). Mit „Jetzt aktualisieren“ installieren und danach ab- und wieder anmelden.`,
+                        'warning');
+                else
+                    setStatus('emblem-ok-symbolic', `Aktuell – v${installedName} ist die neueste Version`, 'success');
+            } catch (e) {
+                setStatus('dialog-warning-symbolic', `Prüfung fehlgeschlagen: ${e.message}`, 'warning');
+            }
+            checkBtn.sensitive = true;
+        };
+        checkBtn.connect('clicked', checkProgram);
+        if (settings.get_boolean('update-check-enabled'))
+            checkProgram();
+
+        // --- Versender-Datenbank ---
+        const groupDb = new Adw.PreferencesGroup({
+            title: 'Versender-Datenbank',
+            description: 'Namen und Links der Versender liegen als JSON im Git-Repository. Ein Update der Datenbank wirkt sofort, ohne Ab- und Anmelden.',
+        });
+        pageUpdate.add(groupDb);
+
+        const dbAutoRow = new Adw.SwitchRow({
+            title: 'Datenbank automatisch aktualisieren',
+            subtitle: 'Lädt bei jeder Statusabfrage eine neuere Version (reine Daten, keine Programme)',
+        });
+        settings.bind('shipper-db-auto-update', dbAutoRow, 'active', Gio.SettingsBindFlags.DEFAULT);
+        groupDb.add(dbAutoRow);
+
+        const dbUrlRow = new Adw.EntryRow({ title: 'URL der Versender-Datenbank (https)' });
+        settings.bind('shipper-db-url', dbUrlRow, 'text', Gio.SettingsBindFlags.DEFAULT);
+        groupDb.add(dbUrlRow);
+
+        const dbRow = new Adw.ActionRow({ title: 'Installierte Datenbank' });
+        const dbIcon = new Gtk.Image({ icon_name: 'emblem-ok-symbolic', valign: Gtk.Align.CENTER });
+        dbRow.add_prefix(dbIcon);
+        const dbBtn = new Gtk.Button({ label: 'Jetzt aktualisieren', valign: Gtk.Align.CENTER });
+        dbRow.add_suffix(dbBtn);
+        groupDb.add(dbRow);
+
+        const describeDb = () => {
+            const info = shipperInfo();
+            dbRow.title = `Installierte Datenbank: v${info.version}`;
+            return `${info.count} Versender${info.updated ? ` • Stand ${info.updated}` : ''}`;
+        };
+        const setDbStatus = (icon, text, cssClass = null) => {
+            dbIcon.icon_name = icon;
+            for (const c of ['success', 'warning', 'error'])
+                dbIcon.remove_css_class(c);
+            if (cssClass)
+                dbIcon.add_css_class(cssClass);
+            dbRow.subtitle = GLib.markup_escape_text(text, -1);
+        };
+        setDbStatus('emblem-ok-symbolic', describeDb());
+
+        const checkDb = async () => {
+            dbBtn.sensitive = false;
+            setDbStatus('view-refresh-symbolic', 'Prüfe auf neue Datenbank …');
+            const r = await updateShippers(settings.get_string('shipper-db-url'));
+            if (r.status === 'updated') {
+                // Extension und diese Seite laden die neue Datenbank sofort
+                settings.set_int('shipper-db-revision', settings.get_int('shipper-db-revision') + 1);
+                fillCarrierRow();
+                showCarrierHint();
+                rebuildList();
+                const skipped = r.skipped > 0 ? ` (${r.skipped} ungültige Einträge übersprungen)` : '';
+                setDbStatus('emblem-ok-symbolic',
+                    `Aktualisiert: v${r.localVersion} → v${r.remoteVersion} – sofort aktiv. ${describeDb()}${skipped}`, 'success');
+            } else if (r.status === 'current') {
+                setDbStatus('emblem-ok-symbolic', `Aktuell – ${describeDb()}`, 'success');
+            } else {
+                setDbStatus('dialog-warning-symbolic', `Prüfung fehlgeschlagen: ${r.error}`, 'warning');
+            }
+            dbBtn.sensitive = true;
+        };
+        dbBtn.connect('clicked', checkDb);
+        if (settings.get_boolean('shipper-db-auto-update'))
+            checkDb();
     }
 }
 

@@ -3,42 +3,10 @@
  * Sendungsliste, Normalisierung der DHL-Antwort, Datums-Formatierung.
  */
 
-/**
- * Versender-Register.
- *  api:    true = Status wird über eine Tracking-API abgefragt (braucht `secret`)
- *  secret: Name des Eintrags im GNOME-Schlüsselbund (siehe secretStore.js)
- *  url:    Link zur Sendungsverfolgung des Versenders (Karte anklicken)
- */
-export const CARRIERS = {
-    dhl: {
-        name: 'DHL',
-        api: true,
-        secret: 'dhl-api-key',
-        url: n => `https://www.dhl.de/de/privatkunden/pakete-empfangen/verfolgen.html?piececode=${encodeURIComponent(n)}`,
-    },
-    ups: {
-        name: 'UPS',
-        api: false,
-        url: n => `https://www.ups.com/track?loc=de_DE&tracknum=${encodeURIComponent(n)}`,
-    },
-    dpd: {
-        name: 'DPD',
-        api: false,
-        url: n => `https://tracking.dpd.de/parcelstatus?query=${encodeURIComponent(n)}&locale=de_DE`,
-    },
-    gls: {
-        name: 'GLS',
-        api: false,
-        url: n => `https://gls-group.com/DE/de/paketverfolgung?match=${encodeURIComponent(n)}`,
-    },
-    amazon: {
-        name: 'Amazon',
-        api: false,
-        url: () => 'https://www.amazon.de/gp/css/order-history',
-    },
-};
+import { CARRIERS } from './shippers.js';
 
-export const CARRIER_IDS = Object.keys(CARRIERS);
+// Die Versender kommen aus der Versender-Datenbank (data/shippers.json), siehe shippers.js.
+export { CARRIERS, carrierIds, getCarrier } from './shippers.js';
 
 export const STATE_LABELS = {
     preTransit: 'Angekündigt',
@@ -75,7 +43,9 @@ export function parseParcels(json) {
             continue;
         const carrier = String(item.carrier ?? '');
         const number = normalizeNumber(item.number);
-        if (!CARRIERS[carrier] || !number)
+        // Versender-IDs, die (noch) nicht in der Datenbank stehen, bleiben erhalten –
+        // sonst würden Sendungen bei einem Datenbank-Update stillschweigend verschwinden.
+        if (!/^[a-z0-9-]{2,20}$/.test(carrier) || !number)
             continue;
         const id = String(item.id || makeId(carrier, number));
         if (seen.has(id))

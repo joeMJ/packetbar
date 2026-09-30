@@ -12,7 +12,7 @@ import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
 import {
-    CARRIERS, STATE_LABELS, isVisible, isActive, formatEta, formatDateTime,
+    getCarrier, STATE_LABELS, isVisible, isActive, formatEta, formatDateTime,
 } from './parcelUtil.js';
 
 const STATE_ICONS = {
@@ -208,7 +208,7 @@ class PacketIndicator extends PanelMenu.Button {
      * Karte einer Sendung. Ein Klick öffnet die Sendungsverfolgung des Versenders.
      */
     _buildCard(parcel, entry) {
-        const carrier = CARRIERS[parcel.carrier];
+        const carrier = getCarrier(parcel.carrier);
         const state = entry?.state ?? 'unknown';
         const hasApi = carrier.api;
 
@@ -219,9 +219,12 @@ class PacketIndicator extends PanelMenu.Button {
             x_align: Clutter.ActorAlign.FILL,
         });
         card.connect('clicked', () => {
+            const url = carrier.url(parcel.number);
+            if (!url?.startsWith('https://'))
+                return;
             this.menu.close();
             try {
-                Gio.AppInfo.launch_default_for_uri(carrier.url(parcel.number), null);
+                Gio.AppInfo.launch_default_for_uri(url, null);
             } catch (e) {
                 console.warn(`[packetbar] Link konnte nicht geöffnet werden: ${e.message}`);
             }
@@ -267,7 +270,9 @@ class PacketIndicator extends PanelMenu.Button {
         let statusText;
         let detailText = '';
         if (!hasApi) {
-            statusText = 'Keine Status-API – Klick öffnet die Sendungsverfolgung';
+            statusText = carrier.unknown
+                ? 'Versender nicht mehr in der Datenbank'
+                : 'Keine Status-API – Klick öffnet die Sendungsverfolgung';
         } else if (!entry) {
             statusText = 'Noch nicht abgefragt';
         } else {

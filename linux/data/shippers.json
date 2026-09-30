@@ -1,0 +1,38 @@
+{
+  "schema": 1,
+  "version": 1,
+  "updated": "2026-09-30",
+  "shippers": [
+    {
+      "id": "dhl",
+      "name": "DHL",
+      "provider": "dhl",
+      "trackUrl": "https://www.dhl.de/de/privatkunden/pakete-empfangen/verfolgen.html?piececode={number}",
+      "numberHint": "Sendungsnummer aus der Versandbestätigung, z. B. 00340434161094042557 oder JJD…"
+    },
+    {
+      "id": "ups",
+      "name": "UPS",
+      "trackUrl": "https://www.ups.com/track?loc=de_DE&tracknum={number}",
+      "numberHint": "Tracking-Nummer, beginnt meist mit 1Z"
+    },
+    {
+      "id": "dpd",
+      "name": "DPD",
+      "trackUrl": "https://tracking.dpd.de/parcelstatus?query={number}&locale=de_DE",
+      "numberHint": "Paketscheinnummer, meist 14 Ziffern"
+    },
+    {
+      "id": "gls",
+      "name": "GLS",
+      "trackUrl": "https://gls-group.com/DE/de/paketverfolgung?match={number}",
+      "numberHint": "Paketnummer, meist 11 oder 12 Ziffern"
+    },
+    {
+      "id": "amazon",
+      "name": "Amazon",
+      "trackUrl": "https://www.amazon.de/gp/css/order-history",
+      "numberHint": "Beliebige Kennung, z. B. die Bestellnummer – der Link führt zur Bestellübersicht"
+    }
+  ]
+}

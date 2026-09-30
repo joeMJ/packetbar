@@ -11,9 +11,8 @@ import { PacketIndicator } from './src/indicator.js';
 import { DhlClient } from './src/dhlClient.js';
 import { UpdateChecker } from './src/updater.js';
 import { lookupSecretNoPrompt } from './src/secretStore.js';
-import {
-    CARRIERS, parseParcels, parseCache, dayKey,
-} from './src/parcelUtil.js';
+import { parseParcels, parseCache, dayKey, getCarrier } from './src/parcelUtil.js';
+import { loadShippers, updateShippers, shipperInfo } from './src/shipperDb.js';
 
 // DHL erlaubt standardmäßig 250 Anfragen/Tag und 1 Anfrage/Sekunde.
 const DAILY_LIMIT = 240;          // Sicherheitsabstand zum Tageslimit
@@ -26,8 +25,14 @@ export default class PacketBarExtension extends Extension {
         this._settings = this.getSettings();
         this._cancellable = new Gio.Cancellable();
 
-        // Ein Client je Versender mit Status-API (Schlüssel = Versender-ID)
-        this._clients = { dhl: new DhlClient() };
+        // Status-Anbieter: Client und Schlüsselbund-Eintrag sind bewusst fest im Code und
+        // nicht Teil der Versender-Datenbank – diese verweist nur per `provider` darauf.
+        this._providers = {
+            dhl: { client: new DhlClient(), secret: 'dhl-api-key' },
+        };
+
+        // Versender-Datenbank (mitgeliefert oder heruntergeladen, die neuere gilt)
+        this._shipperInfo = loadShippers(this.path);
         this._updateChecker = new UpdateChecker(this.metadata.version || 1);
 
         this._cache = parseCache(this._settings.get_string('parcel-cache'));
@@ -69,6 +74,11 @@ export default class PacketBarExtension extends Extension {
             this.refreshData({ onlyMissing: true });
         });
         on('dhl-key-revision', () => this.refreshData({ force: true }));
+        // Datenbank in den Einstellungen aktualisiert → neu einlesen, kein Neustart nötig
+        on('shipper-db-revision', () => {
+            this._shipperInfo = loadShippers(this.path);
+            this._applyDataToUI();
+        });
 
         this._setupNetworkMonitor();
         this._setupSleepMonitor();
@@ -118,7 +128,7 @@ export default class PacketBarExtension extends Extension {
             this._indicator = null;
         }
 
-        this._clients = null;
+        this._providers = null;
         this._updateChecker = null;
         this._settings = null;
     }
@@ -330,12 +340,11 @@ export default class PacketBarExtension extends Extension {
     }
 
     /**
-     * Fragt alle Sendungen eines Versenders nacheinander ab (Spike Arrest).
+     * Fragt alle Sendungen eines Status-Anbieters nacheinander ab (Spike Arrest).
      * @returns {Promise<{hint: object|null, offline: boolean}>}
      */
-    async _fetchCarrier(carrierId, targets) {
-        const secretName = CARRIERS[carrierId].secret;
-        const client = this._clients[carrierId];
+    async _fetchProvider(providerId, targets) {
+        const { client, secret: secretName } = this._providers[providerId];
 
         const { value: apiKey, locked } = await this._getSecret(secretName);
         if (!apiKey) {
@@ -431,17 +440,22 @@ export default class PacketBarExtension extends Extension {
                 ? this._updateChecker.checkForUpdates(updateUrl, this._cancellable)
                 : Promise.resolve(null);
 
+            // Versender-Datenbank: reine Daten, wirkt sofort (kein Ab-/Anmelden nötig)
+            const shipperPromise = this._settings.get_boolean('shipper-db-auto-update') && !onlyMissing
+                ? updateShippers(this._settings.get_string('shipper-db-url'), this._cancellable)
+                : Promise.resolve(null);
+
             let hint = null;
             let offline = false;
             let fetched = false;
 
-            for (const carrierId of Object.keys(this._clients)) {
+            for (const providerId of Object.keys(this._providers)) {
                 const targets = parcels.filter(p =>
-                    p.carrier === carrierId && this._needsFetch(p, { onlyMissing }));
+                    getCarrier(p.carrier).provider === providerId && this._needsFetch(p, { onlyMissing }));
                 if (targets.length === 0)
                     continue;
 
-                const result = await this._fetchCarrier(carrierId, targets);
+                const result = await this._fetchProvider(providerId, targets);
                 hint = hint ?? result.hint;
                 offline = offline || result.offline;
                 fetched = true;
@@ -459,6 +473,12 @@ export default class PacketBarExtension extends Extension {
             const updateStatus = await updatePromise;
             if (updateStatus)
                 this._lastUpdateStatus = updateStatus;
+
+            const shipperResult = await shipperPromise;
+            if (shipperResult?.status === 'updated') {
+                this._shipperInfo = shipperInfo('heruntergeladen');
+                console.log(`[packetbar] Versender-Datenbank auf v${shipperResult.remoteVersion} aktualisiert.`);
+            }
 
             if (offline)
                 this._scheduleRetry(120);

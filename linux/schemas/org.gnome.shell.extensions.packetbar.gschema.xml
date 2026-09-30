@@ -60,6 +60,24 @@
       <description>Prüft regelmäßig auf neuere Versionen im Git-Repository.</description>
     </key>
 
+    <key name="shipper-db-auto-update" type="b">
+      <default>true</default>
+      <summary>Versender-Datenbank automatisch aktualisieren</summary>
+      <description>Lädt bei jeder Statusabfrage eine neuere Versender-Datenbank aus dem Git-Repository. Das sind reine Daten (Namen und Links), sie wirken sofort ohne Neuanmeldung.</description>
+    </key>
+
+    <key name="shipper-db-url" type="s">
+      <default>'https://raw.githubusercontent.com/joeMJ/packetbar/main/linux/data/shippers.json'</default>
+      <summary>URL der Versender-Datenbank</summary>
+      <description>HTTPS-URL der shippers.json mit den Versender-Vorlagen.</description>
+    </key>
+
+    <key name="shipper-db-revision" type="i">
+      <default>0</default>
+      <summary>Änderungszähler der Versender-Datenbank</summary>
+      <description>Wird von den Einstellungen hochgezählt, wenn eine neue Versender-Datenbank heruntergeladen wurde, damit die Extension sie neu lädt.</description>
+    </key>
+
     <key name="git-update-url" type="s">
       <default>'https://github.com/joeMJ/packetbar.git'</default>
       <summary>Git Clone / Update URL</summary>

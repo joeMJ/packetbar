@@ -12,6 +12,8 @@ LEGACY_UUIDS=()
 EXTENSIONS_DIR="${HOME}/.local/share/gnome-shell/extensions"
 TARGET_DIR="${EXTENSIONS_DIR}/${EXTENSION_UUID}"
 DESKTOP_DIR="${HOME}/.local/share/applications"
+# Heruntergeladene Versender-Datenbank (übersteht Updates, wird nur bei --uninstall gelöscht)
+USER_DATA_DIR="${XDG_DATA_HOME:-${HOME}/.local/share}/packetbar"
 DCONF_PATH="/org/gnome/shell/extensions/packetbar/"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -88,6 +90,15 @@ clear_keyring_secrets() {
     done
 }
 
+# Startverknüpfung früherer Versionen entfernen (wird nicht mehr angelegt)
+remove_stale_desktop_entry() {
+    if [ -f "${DESKTOP_DIR}/packetbar.desktop" ]; then
+        print_info "Entferne alte Startverknüpfung: ${DESKTOP_DIR}/packetbar.desktop..."
+        rm -f "${DESKTOP_DIR}/packetbar.desktop"
+        command -v update-desktop-database &>/dev/null && update-desktop-database "${DESKTOP_DIR}" 2>/dev/null || true
+    fi
+}
+
 # Hilfe
 show_help() {
     echo "Verwendung: $0 [OPTION]"
@@ -95,7 +106,7 @@ show_help() {
     echo "Optionen:"
     echo "  --install     (Standard) Installiert und aktiviert die Extension im User-Verzeichnis"
     echo "  --update      Im Git-Klon: git pull + Installation; sonst Installation des geladenen Stands"
-    echo "  --uninstall   Entfernt Extension, Einstellungen (dconf) und API-Keys (Schlüsselbund)"
+    echo "  --uninstall   Entfernt Extension, Einstellungen (dconf), Versender-Datenbank und API-Keys (Schlüsselbund)"
     echo "  --help        Zeigt diese Hilfe an"
     exit 0
 }
@@ -116,14 +127,15 @@ do_uninstall() {
 
     clear_keyring_secrets
 
-    # Startverknüpfung (.desktop) entfernen
-    if [ -f "${DESKTOP_DIR}/packetbar.desktop" ]; then
-        print_info "Entferne Startverknüpfung: ${DESKTOP_DIR}/packetbar.desktop..."
-        rm -f "${DESKTOP_DIR}/packetbar.desktop"
-        command -v update-desktop-database &>/dev/null && update-desktop-database "${DESKTOP_DIR}" 2>/dev/null || true
+    remove_stale_desktop_entry
+
+    # Heruntergeladene Versender-Datenbank entfernen
+    if [ -d "${USER_DATA_DIR}" ]; then
+        print_info "Entferne Versender-Datenbank: ${USER_DATA_DIR}..."
+        rm -rf "${USER_DATA_DIR}"
     fi
 
-    print_success "Deinstallation abgeschlossen! Extension, Einstellungen und API-Keys wurden entfernt."
+    print_success "Deinstallation abgeschlossen! Extension, Einstellungen, Versender-Datenbank und API-Keys wurden entfernt."
     exit 0
 }
 
@@ -188,6 +200,7 @@ do_install() {
     cp -r "${SCRIPT_DIR}/stylesheet.css" "${TARGET_DIR}/"
     cp -r "${SCRIPT_DIR}/src" "${TARGET_DIR}/"
     cp -r "${SCRIPT_DIR}/schemas" "${TARGET_DIR}/"
+    cp -r "${SCRIPT_DIR}/data" "${TARGET_DIR}/"
 
     if [ -d "${SCRIPT_DIR}/icons" ]; then
         cp -r "${SCRIPT_DIR}/icons" "${TARGET_DIR}/"
@@ -215,19 +228,13 @@ do_install() {
         gnome-extensions enable "${EXTENSION_UUID}" 2>/dev/null || true
     fi
 
-    # Startverknüpfung (.desktop) anlegen
-    if [ -f "${SCRIPT_DIR}/packetbar.desktop" ]; then
-        print_info "Installiere Startverknüpfung nach ${DESKTOP_DIR}/packetbar.desktop..."
-        mkdir -p "${DESKTOP_DIR}"
-        cp "${SCRIPT_DIR}/packetbar.desktop" "${DESKTOP_DIR}/"
-        command -v update-desktop-database &>/dev/null && update-desktop-database "${DESKTOP_DIR}" 2>/dev/null || true
-    fi
+    remove_stale_desktop_entry
 
     print_success "Installation erfolgreich abgeschlossen!"
     print_info "WICHTIGER HINWEIS (GNOME Wayland):"
     print_info "  GNOME Shell lädt neu installierte Erweiterungen auf Wayland erst beim Sitzungsstart."
     print_info "  Bitte einmal ABMELDEN und wieder ANMELDEN (oder System neu starten)!"
-    print_info "  Danach ist das Icon in der oberen Leiste aktiv und die Startverknüpfung nutzbar."
+    print_info "  Danach ist das Icon in der oberen Leiste aktiv."
 }
 
 # Parameter verarbeiten
