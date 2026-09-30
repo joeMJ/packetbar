@@ -56,6 +56,7 @@ test('Registry wird angewendet und ist sofort überall sichtbar', () => {
     assert.equal(u.getCarrier('dhl').api, true);
     assert.equal(u.getCarrier('ups').api, false);
     assert.match(u.getCarrier('dhl').url('0034 x'), /piececode=0034%20x$/);
+    assert.match(u.getCarrier('dhl').trackUrl, /\{number\}/);   // Vorlage für die Anzeige in den Einstellungen
     assert.equal(sh.activeShipperVersion(), bundledRaw.version);
 });
 

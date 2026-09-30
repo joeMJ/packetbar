@@ -136,6 +136,7 @@ export function applyShippers(db) {
             provider: s.provider,
             api: s.provider !== null,
             numberHint: s.numberHint,
+            trackUrl: s.trackUrl,
             url: number => renderTrackUrl(s.trackUrl, number),
         };
     }
@@ -169,6 +170,7 @@ export function getCarrier(id) {
         provider: null,
         api: false,
         numberHint: '',
+        trackUrl: '',
         unknown: true,
         url: () => null,
     };

@@ -12,7 +12,7 @@ import { DhlClient } from './src/dhlClient.js';
 import { UpdateChecker } from './src/updater.js';
 import { lookupSecretNoPrompt } from './src/secretStore.js';
 import { parseParcels, parseCache, dayKey, getCarrier } from './src/parcelUtil.js';
-import { loadShippers, updateShippers, shipperInfo } from './src/shipperDb.js';
+import { loadShippers, updateShippers } from './src/shipperDb.js';
 
 // DHL erlaubt standardmäßig 250 Anfragen/Tag und 1 Anfrage/Sekunde.
 const DAILY_LIMIT = 240;          // Sicherheitsabstand zum Tageslimit
@@ -476,8 +476,10 @@ export default class PacketBarExtension extends Extension {
 
             const shipperResult = await shipperPromise;
             if (shipperResult?.status === 'updated') {
-                this._shipperInfo = shipperInfo('heruntergeladen');
                 console.log(`[packetbar] Versender-Datenbank auf v${shipperResult.remoteVersion} aktualisiert.`);
+                // Zähler hochsetzen: lädt die Datenbank neu (siehe Signal oben) und lässt eine
+                // geöffnete Einstellungsseite ihre Versenderliste neu aufbauen.
+                this._settings.set_int('shipper-db-revision', this._settings.get_int('shipper-db-revision') + 1);
             }
 
             if (offline)

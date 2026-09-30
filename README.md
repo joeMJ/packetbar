@@ -20,6 +20,7 @@
 
 * **Panel:** Paket-Symbol mit der Anzahl der Sendungen, die noch unterwegs sind. Bei einem Zustellproblem färbt sich das Symbol rot.
 * **Popup im Card-Look:** Pro Sendung eine Karte mit Bezeichnung, Versender, Status, letztem Ereignis samt Ort und Zeit und der voraussichtlichen Zustellung. Ein Klick auf die Karte öffnet die Sendungsverfolgung des Versenders.
+* **Versender-Seite:** Je Versender eine aufklappbare Zeile mit seiner Konfiguration (bei DHL der API-Key im Schlüsselbund, bei den anderen Link und Nummernformat). Die Zeilen kommen aus der Versender-Datenbank und ändern sich mit ihr, ohne Neuanmeldung.
 * **Einstellungen:** Die Sendungen sind nach Versender gruppiert und aufklappbar (wie die Geräte in snmpbar), mit Anzahl, Status-Zusammenfassung und einem Knopf zum Entfernen zugestellter Sendungen.
 * **DHL per API:** Der Status wird über die [DHL Shipment Tracking API (Unified)](https://developer.dhl.com/api-reference/shipment-tracking) abgefragt.
 * **Weitere Versender:** UPS, DPD, GLS und Amazon können eingetragen werden. Für sie gibt es (noch) keine Status-Abfrage, die Karte öffnet die Sendungsverfolgung im Browser.
@@ -48,7 +49,7 @@ Voraussetzungen: GNOME Shell 46–50, `libglib2.0-bin` (`glib-compile-schemas`) 
 ## Einrichtung von DHL
 
 1. Auf [developer.dhl.com](https://developer.dhl.com/) ein kostenloses Konto anlegen, eine App erstellen und die API **Shipment Tracking – Unified** hinzufügen.
-2. In den Einstellungen von packetbar auf der Seite **DHL** den API-Key (in den App-Details als *Consumer Key*) eintragen und mit dem Haken bestätigen. Er wird im Schlüsselbund gespeichert. Neu erstellte Keys können laut DHL bis zu 24 Stunden brauchen, bis sie aktiv sind – bis dahin zeigt packetbar einen Auth-Hinweis.
+2. In den Einstellungen von packetbar auf der Seite **Versender** die Zeile **DHL** aufklappen und den API-Key (in den App-Details als *Consumer Key*) eintragen und mit dem Haken bestätigen. Er wird im Schlüsselbund gespeichert. Neu erstellte Keys können laut DHL bis zu 24 Stunden brauchen, bis sie aktiv sind – bis dahin zeigt packetbar einen Auth-Hinweis.
 3. Auf der Seite **Sendungen** die DHL-Sendungsnummer eintragen.
 
 ## Aufbau

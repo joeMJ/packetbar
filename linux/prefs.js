@@ -15,8 +15,18 @@ import {
     validateNumber, parseCache,
 } from './src/parcelUtil.js';
 
-// Schlüsselbund-Eintrag des DHL-Keys (fest im Code, siehe extension.js)
-const DHL_SECRET = 'dhl-api-key';
+// Oberfläche der Status-Anbieter. Schlüsselbund-Eintrag und Änderungszähler sind fest im
+// Code (siehe extension.js); die Versender-Datenbank verweist nur per `provider` darauf.
+const PROVIDER_UI = {
+    dhl: {
+        secret: 'dhl-api-key',
+        revisionKey: 'dhl-key-revision',
+        keyTitle: 'API-Key (Consumer Key)',
+        description: 'Kostenloser Key aus dem DHL Developer Portal (App erstellen, „Shipment Tracking – Unified“ auswählen). Standardlimit: 250 Anfragen pro Tag, 1 pro Sekunde. Neue Keys können bis zu 24 Stunden brauchen, bis sie aktiv sind.',
+        portalUrl: 'https://developer.dhl.com/',
+        portalLabel: 'DHL Developer Portal',
+    },
+};
 
 export default class PacketBarPreferences extends ExtensionPreferences {
     fillPreferencesWindow(window) {
@@ -276,89 +286,185 @@ export default class PacketBarPreferences extends ExtensionPreferences {
         groupPanel.add(hideRow);
 
         // ==========================================
-        // Seite 2: DHL (Zugangsdaten im Schlüsselbund)
+        // Seite 2: Versender (aufklappbar je Versender, aus der Datenbank)
         // ==========================================
-        const pageDhl = new Adw.PreferencesPage({
-            title: 'DHL',
+        const pageCarriers = new Adw.PreferencesPage({
+            title: 'Versender',
             icon_name: 'network-server-symbolic',
         });
-        window.add(pageDhl);
+        window.add(pageCarriers);
 
-        const groupDhl = new Adw.PreferencesGroup({
-            title: 'DHL Shipment Tracking API',
-            description: 'Einen kostenlosen API-Key gibt es im DHL Developer Portal (Konto anlegen, App erstellen, „Shipment Tracking – Unified“ auswählen). Standardlimit: 250 Anfragen pro Tag, 1 pro Sekunde.',
+        const groupCarriers = new Adw.PreferencesGroup({
+            title: 'Versender',
+            description: 'Konfiguration je Versender. Die Liste kommt aus der Versender-Datenbank und aktualisiert sich mit ihr – ohne Ab- und Anmelden.',
         });
-        pageDhl.add(groupDhl);
+        pageCarriers.add(groupCarriers);
 
-        // Key liegt im GNOME-Schlüsselbund, nicht in dconf
-        const keyRow = new Adw.PasswordEntryRow({
-            title: 'API-Key',
-            show_apply_button: true,
-        });
-        groupDhl.add(keyRow);
+        // Aufgeklappte Versender merken, damit die Seite beim Neuaufbau nicht zuklappt
+        const expandedConfig = new Set();
+        // Speichern-Funktionen der aktuell sichtbaren Key-Felder (werden vor einem Neuaufbau ausgeführt)
+        const keySavers = new Set();
+        let carrierRows = [];
 
-        const keyInfoRow = new Adw.ActionRow({
-            title: 'Speicherort',
-            subtitle: 'GNOME-Schlüsselbund – wird geladen …',
-        });
-        groupDhl.add(keyInfoRow);
+        const rebuildCarrierPage = () => {
+            // Ungespeicherte Eingaben sichern, bevor die Zeilen ersetzt werden
+            for (const save of keySavers)
+                save();
+            keySavers.clear();
+            for (const row of carrierRows)
+                groupCarriers.remove(row);
+            carrierRows = [];
 
-        let storedKey = null;
+            for (const carrierId of carrierIds()) {
+                const carrier = getCarrier(carrierId);
+                const ui = carrier.provider ? PROVIDER_UI[carrier.provider] : null;
 
-        lookupSecret(DHL_SECRET)
-            .then(key => {
-                storedKey = key ?? '';
-                keyRow.text = storedKey;
+                const expander = new Adw.ExpanderRow({
+                    title: GLib.markup_escape_text(carrier.name, -1),
+                    subtitle: ui ? 'Status per API' : 'Nur Link zur Sendungsverfolgung – keine Zugangsdaten nötig',
+                    show_enable_switch: false,
+                    expanded: expandedConfig.has(carrierId),
+                });
+                expander.connect('notify::expanded', () => {
+                    if (expander.expanded)
+                        expandedConfig.add(carrierId);
+                    else
+                        expandedConfig.delete(carrierId);
+                });
+
+                if (ui)
+                    addApiRows(expander, carrier, ui);
+                else
+                    addLinkRows(expander, carrier);
+
+                groupCarriers.add(expander);
+                carrierRows.push(expander);
+            }
+        };
+
+        /** Versender ohne Status-API: nur Information zum Link. */
+        const addLinkRows = (expander, carrier) => {
+            expander.add_row(new Adw.ActionRow({
+                title: 'Status',
+                subtitle: 'Für diesen Versender gibt es (noch) keine Status-Abfrage. Ein Klick auf die Karte im Popup öffnet die Sendungsverfolgung im Browser.',
+            }));
+            expander.add_row(new Adw.ActionRow({
+                title: 'Link zur Sendungsverfolgung',
+                subtitle: GLib.markup_escape_text(carrier.trackUrl, -1),
+                subtitle_selectable: true,
+            }));
+            if (carrier.numberHint) {
+                expander.add_row(new Adw.ActionRow({
+                    title: 'Sendungsnummer',
+                    subtitle: GLib.markup_escape_text(carrier.numberHint, -1),
+                }));
+            }
+        };
+
+        /** Versender mit Status-API: Zugangsdaten im GNOME-Schlüsselbund, nicht in dconf. */
+        const addApiRows = (expander, carrier, ui) => {
+            expander.add_row(new Adw.ActionRow({
+                title: 'Status-API',
+                subtitle: GLib.markup_escape_text(ui.description, -1),
+            }));
+
+            const keyRow = new Adw.PasswordEntryRow({
+                title: ui.keyTitle,
+                show_apply_button: true,
+            });
+            expander.add_row(keyRow);
+
+            const keyInfoRow = new Adw.ActionRow({
+                title: 'Speicherort',
+                subtitle: 'GNOME-Schlüsselbund – wird geladen …',
+            });
+            expander.add_row(keyInfoRow);
+
+            let storedKey = null;
+            const setState = key => {
+                storedKey = key;
                 keyInfoRow.subtitle = key
                     ? 'Im GNOME-Schlüsselbund hinterlegt (verschlüsselt)'
                     : 'Kein Key hinterlegt';
-            })
-            .catch(e => {
-                keyInfoRow.subtitle = `Schlüsselbund nicht erreichbar: ${e.message}`;
-            });
+                expander.subtitle = key ? 'Status per API • Key hinterlegt' : 'Status per API • Key fehlt';
+            };
 
-        const saveKey = async () => {
-            const key = keyRow.text.trim();
-            if (storedKey === null || key === storedKey)
-                return;
-            try {
-                if (key)
-                    await storeSecret(DHL_SECRET, key);
-                else
-                    await clearSecret(DHL_SECRET);
-                storedKey = key;
-                settings.set_int('dhl-key-revision', settings.get_int('dhl-key-revision') + 1);
-                keyInfoRow.subtitle = key
-                    ? 'Im GNOME-Schlüsselbund gespeichert (verschlüsselt)'
-                    : 'Key aus dem Schlüsselbund entfernt';
-            } catch (e) {
-                keyInfoRow.subtitle = `Speichern fehlgeschlagen: ${e.message}`;
-            }
+            lookupSecret(ui.secret)
+                .then(key => {
+                    setState(key ?? '');
+                    keyRow.text = storedKey;
+                })
+                .catch(e => {
+                    keyInfoRow.subtitle = `Schlüsselbund nicht erreichbar: ${e.message}`;
+                });
+
+            const saveKey = async () => {
+                const key = keyRow.text.trim();
+                if (storedKey === null || key === storedKey)
+                    return;
+                try {
+                    if (key)
+                        await storeSecret(ui.secret, key);
+                    else
+                        await clearSecret(ui.secret);
+                    setState(key);
+                    keyInfoRow.subtitle = key
+                        ? 'Im GNOME-Schlüsselbund gespeichert (verschlüsselt)'
+                        : 'Key aus dem Schlüsselbund entfernt';
+                    settings.set_int(ui.revisionKey, settings.get_int(ui.revisionKey) + 1);
+                } catch (e) {
+                    keyInfoRow.subtitle = `Speichern fehlgeschlagen: ${e.message}`;
+                }
+            };
+            keyRow.connect('apply', saveKey);
+            keyRow.connect('entry-activated', saveKey);
+            keySavers.add(saveKey);
+
+            const portalRow = new Adw.ActionRow({
+                title: ui.portalLabel,
+                subtitle: GLib.markup_escape_text(ui.portalUrl.replace('https://', ''), -1),
+            });
+            const portalBtn = new Gtk.Button({ label: 'Öffnen', valign: Gtk.Align.CENTER });
+            portalBtn.connect('clicked', () => {
+                try {
+                    Gio.AppInfo.launch_default_for_uri(ui.portalUrl, null);
+                } catch (e) {
+                    portalRow.subtitle = `Link konnte nicht geöffnet werden: ${e.message}`;
+                }
+            });
+            portalRow.add_suffix(portalBtn);
+            expander.add_row(portalRow);
+
+            expander.add_row(new Adw.ActionRow({
+                title: 'Link zur Sendungsverfolgung',
+                subtitle: GLib.markup_escape_text(carrier.trackUrl, -1),
+                subtitle_selectable: true,
+            }));
         };
-        keyRow.connect('apply', saveKey);
-        keyRow.connect('entry-activated', saveKey);
+
+        rebuildCarrierPage();
         window.connect('close-request', () => {
-            saveKey();
+            for (const save of keySavers)
+                save();
             return false;
         });
 
-        const portalRow = new Adw.ActionRow({
-            title: 'DHL Developer Portal',
-            subtitle: 'developer.dhl.com',
+        // Neue Versender-Datenbank (aus den Einstellungen oder im Hintergrund von der
+        // Extension geladen): alles, was von der Datenbank abhängt, neu aufbauen.
+        const refreshFromDb = () => {
+            loadShippers(this.path);
+            fillCarrierRow();
+            showCarrierHint();
+            rebuildList();
+            rebuildCarrierPage();
+            // Anzeige unter „Updates“ (wird weiter unten angelegt, der Handler läuft erst später)
+            setDbStatus('emblem-ok-symbolic', describeDb());
+        };
+        const dbSignal = settings.connect('changed::shipper-db-revision', refreshFromDb);
+        window.connect('close-request', () => {
+            settings.disconnect(dbSignal);
+            return false;
         });
-        const portalBtn = new Gtk.Button({
-            label: 'Öffnen',
-            valign: Gtk.Align.CENTER,
-        });
-        portalBtn.connect('clicked', () => {
-            try {
-                Gio.AppInfo.launch_default_for_uri('https://developer.dhl.com/', null);
-            } catch (e) {
-                portalRow.subtitle = `Link konnte nicht geöffnet werden: ${e.message}`;
-            }
-        });
-        portalRow.add_suffix(portalBtn);
-        groupDhl.add(portalRow);
 
         // ==========================================
         // Seite 3: Updates
@@ -501,11 +607,8 @@ export default class PacketBarPreferences extends ExtensionPreferences {
             setDbStatus('view-refresh-symbolic', 'Prüfe auf neue Datenbank …');
             const r = await updateShippers(settings.get_string('shipper-db-url'));
             if (r.status === 'updated') {
-                // Extension und diese Seite laden die neue Datenbank sofort
+                // Der Zähler stößt den Neuaufbau dieser Seite und das Neuladen in der Extension an
                 settings.set_int('shipper-db-revision', settings.get_int('shipper-db-revision') + 1);
-                fillCarrierRow();
-                showCarrierHint();
-                rebuildList();
                 const skipped = r.skipped > 0 ? ` (${r.skipped} ungültige Einträge übersprungen)` : '';
                 setDbStatus('emblem-ok-symbolic',
                     `Aktualisiert: v${r.localVersion} → v${r.remoteVersion} – sofort aktiv. ${describeDb()}${skipped}`, 'success');
