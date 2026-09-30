@@ -1,12 +1,16 @@
 {
   "schema": 1,
-  "version": 2,
+  "version": 3,
   "updated": "2026-09-30",
   "shippers": [
     {
       "id": "dhl",
       "name": "DHL",
       "provider": "dhl",
+      "providers": [
+        "dhl",
+        "17track"
+      ],
       "trackUrl": "https://www.dhl.de/de/privatkunden/pakete-empfangen/verfolgen.html?piececode={number}",
       "numberHint": "Sendungsnummer aus der Versandbestätigung, z. B. 00340434161094042557 oder JJD…"
     },
@@ -14,6 +18,9 @@
       "id": "ups",
       "name": "UPS",
       "provider": "17track",
+      "providers": [
+        "17track"
+      ],
       "trackUrl": "https://www.ups.com/track?loc=de_DE&tracknum={number}",
       "numberHint": "Tracking-Nummer, beginnt meist mit 1Z"
     },
@@ -21,6 +28,9 @@
       "id": "dpd",
       "name": "DPD",
       "provider": "17track",
+      "providers": [
+        "17track"
+      ],
       "trackUrl": "https://tracking.dpd.de/parcelstatus?query={number}&locale=de_DE",
       "numberHint": "Paketscheinnummer, meist 14 Ziffern"
     },
@@ -28,6 +38,9 @@
       "id": "gls",
       "name": "GLS",
       "provider": "17track",
+      "providers": [
+        "17track"
+      ],
       "trackUrl": "https://gls-group.com/DE/de/paketverfolgung?match={number}",
       "numberHint": "Paketnummer, meist 11 oder 12 Ziffern"
     },

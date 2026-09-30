@@ -23,6 +23,7 @@
 * **Versender-Seite:** Je Versender eine aufklappbare Zeile mit seiner Konfiguration (bei DHL der API-Key im Schlüsselbund, bei den anderen Link und Nummernformat). Die Zeilen kommen aus der Versender-Datenbank und ändern sich mit ihr, ohne Neuanmeldung.
 * **Einstellungen:** Die Sendungen sind nach Versender gruppiert und aufklappbar (wie die Geräte in snmpbar), mit Anzahl, Status-Zusammenfassung und einem Knopf zum Entfernen zugestellter Sendungen.
 * **DHL per API:** Der Status wird über die [DHL Shipment Tracking API (Unified)](https://developer.dhl.com/api-reference/shipment-tracking) abgefragt.
+* **Status-Quelle je Versender:** DHL ist über die DHL-API *und* über 17TRACK abfragbar. Auf der Seite **Versender** stellst du je Versender „Automatisch“ (Standard), nur DHL oder nur 17TRACK ein. „Automatisch“ nimmt den ersten Anbieter mit gültigem Key und springt auf den nächsten, wenn ein Key fehlt oder abgelehnt wird – etwa solange der DHL-Key noch nicht freigeschaltet ist.
 * **UPS, DPD, GLS über 17TRACK:** Ein einziger Key beim Tracking-Dienst [17TRACK](https://api.17track.net/) deckt diese Versender ab. Kostenlos sind 100 neu registrierte Sendungen pro Monat, Statusabfragen kosten laut [17TRACK](https://help.17track.net/hc/en-us/articles/37575160271001-Quota-Deduction-Standards-and-Rules) kein Kontingent. Die Sendungsnummern gehen dabei an 17TRACK.
 * **Amazon:** Kann eingetragen werden, hat aber keine Status-Abfrage; die Karte öffnet die Bestellübersicht im Browser.
 * **Versender-Datenbank:** Namen und Links der Versender stehen als JSON im Repository und werden automatisch nachgeladen – ohne Ab- und Anmelden (siehe unten).
@@ -53,10 +54,10 @@ Voraussetzungen: GNOME Shell 46–50, `libglib2.0-bin` (`glib-compile-schemas`) 
 2. In den Einstellungen von packetbar auf der Seite **Versender** die Zeile **DHL** aufklappen und den API-Key (in den App-Details als *Consumer Key*) eintragen und mit dem Haken bestätigen. Er wird im Schlüsselbund gespeichert. Neu erstellte Keys können laut DHL bis zu 24 Stunden brauchen, bis sie aktiv sind – bis dahin zeigt packetbar einen Auth-Hinweis.
 3. Auf der Seite **Sendungen** die DHL-Sendungsnummer eintragen.
 
-## Einrichtung von 17TRACK (UPS, DPD, GLS)
+## Einrichtung von 17TRACK (UPS, DPD, GLS und optional DHL)
 
 1. Ein Konto bei [17track.net](https://api.17track.net/) anlegen und in den API-Einstellungen den Security Key erzeugen.
-2. In packetbar auf der Seite **Versender** bei UPS, DPD oder GLS den Key eintragen und bestätigen (gilt für alle drei, Ablage im Schlüsselbund).
+2. In packetbar auf der Seite **Versender** bei UPS, DPD, GLS oder DHL den Key eintragen und bestätigen (gilt für alle, Ablage im Schlüsselbund).
 3. Sendungsnummer auf der Seite **Sendungen** eintragen. Beim ersten Abruf wird sie einmalig bei 17TRACK registriert (1 Kontingent), erste Daten liegen laut 17TRACK nach etwa einer Minute vor.
 
 > Die Anbindung ist nach der Dokumentation umgesetzt, aber noch nicht gegen die echte API getestet. Feldnamen der Antwort können abweichen; fehlende Felder werden toleriert.

@@ -56,13 +56,19 @@ function validateShipper(item) {
     if (!isText(item.trackUrl, 300) || !item.trackUrl.startsWith('https://') || /\s/.test(item.trackUrl))
         return null;
 
+    // Status-Anbieter in Reihenfolge der Vorgabe. `providers` (Liste) hat Vorrang vor dem
+    // älteren Einzelfeld `provider`. Unbekannte Anbieter (z. B. aus einem neueren Schema)
+    // werden übergangen → im Zweifel nur Link, kein Fehler.
+    const wanted = Array.isArray(item.providers) ? item.providers : [item.provider];
+    const providers = [...new Set(wanted.filter(p => PROVIDERS.includes(p)))];
+
     const hint = item.numberHint;
     return {
         id: item.id,
         name: item.name.trim(),
         trackUrl: item.trackUrl,
-        // Unbekannter Anbieter (z. B. aus einem neueren Schema) → nur Link, kein Fehler
-        provider: PROVIDERS.includes(item.provider) ? item.provider : null,
+        providers,
+        provider: providers[0] ?? null,
         numberHint: isText(hint, 160) ? hint : '',
     };
 }
@@ -134,7 +140,8 @@ export function applyShippers(db) {
             id: s.id,
             name: s.name,
             provider: s.provider,
-            api: s.provider !== null,
+            providers: s.providers,
+            api: s.providers.length > 0,
             numberHint: s.numberHint,
             trackUrl: s.trackUrl,
             url: number => renderTrackUrl(s.trackUrl, number),
@@ -168,12 +175,49 @@ export function getCarrier(id) {
         id,
         name: id,
         provider: null,
+        providers: [],
         api: false,
         numberHint: '',
         trackUrl: '',
         unknown: true,
         url: () => null,
     };
+}
+
+/**
+ * Einstellung „Status-Quelle je Versender“ (JSON in GSettings) lesen:
+ * `{ups: '17track', dhl: 'auto'}`. Ungültiges wird verworfen.
+ */
+export function parseCarrierSources(json) {
+    let data;
+    try {
+        data = JSON.parse(json || '{}');
+    } catch (_e) {
+        return {};
+    }
+    const result = {};
+    if (!data || typeof data !== 'object' || Array.isArray(data))
+        return result;
+    for (const [carrier, choice] of Object.entries(data)) {
+        if (ID_PATTERN.test(carrier) && (choice === 'auto' || PROVIDERS.includes(choice)))
+            result[carrier] = choice;
+    }
+    return result;
+}
+
+/**
+ * In welcher Reihenfolge Status-Anbieter für einen Versender versucht werden.
+ * „auto“ (Standard) = alle möglichen Anbieter in Reihenfolge der Datenbank, mit
+ * Ausweichen auf den nächsten, wenn einer nicht antworten kann (kein oder abgelehnter Key).
+ * Eine feste Wahl nutzt nur diesen Anbieter.
+ *
+ * @param {{providers: string[]}} carrier
+ * @param {string} [choice]
+ * @returns {string[]}
+ */
+export function providerChain(carrier, choice = 'auto') {
+    const all = carrier?.providers ?? [];
+    return choice !== 'auto' && all.includes(choice) ? [choice] : all;
 }
 
 /** true, wenn die Datenbank `candidate` neuer ist als `current`. */

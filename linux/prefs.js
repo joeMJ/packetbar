@@ -10,6 +10,7 @@ import GLib from 'gi://GLib';
 import { lookupSecret, storeSecret, clearSecret } from './src/secretStore.js';
 import { UpdateChecker } from './src/updater.js';
 import { loadShippers, updateShippers, shipperInfo } from './src/shipperDb.js';
+import { parseCarrierSources } from './src/shippers.js';
 import {
     carrierIds, getCarrier, parseParcels, serializeParcels, makeParcel, normalizeNumber,
     validateNumber, parseCache,
@@ -19,6 +20,7 @@ import {
 // Code (siehe extension.js); die Versender-Datenbank verweist nur per `provider` darauf.
 const PROVIDER_UI = {
     dhl: {
+        name: 'DHL',
         secret: 'dhl-api-key',
         revisionKey: 'dhl-key-revision',
         keyTitle: 'API-Key (Consumer Key)',
@@ -27,6 +29,7 @@ const PROVIDER_UI = {
         portalLabel: 'DHL Developer Portal',
     },
     '17track': {
+        name: '17TRACK',
         secret: '17track-api-key',
         revisionKey: 'track17-key-revision',
         keyTitle: 'API-Key (Security Key)',
@@ -325,11 +328,11 @@ export default class PacketBarPreferences extends ExtensionPreferences {
 
             for (const carrierId of carrierIds()) {
                 const carrier = getCarrier(carrierId);
-                const ui = carrier.provider ? PROVIDER_UI[carrier.provider] : null;
+                const uis = carrier.providers.filter(id => PROVIDER_UI[id]);
 
                 const expander = new Adw.ExpanderRow({
                     title: GLib.markup_escape_text(carrier.name, -1),
-                    subtitle: ui ? 'Status per API' : 'Nur Link zur Sendungsverfolgung – keine Zugangsdaten nötig',
+                    subtitle: uis.length ? 'Status per API' : 'Nur Link zur Sendungsverfolgung – keine Zugangsdaten nötig',
                     show_enable_switch: false,
                     expanded: expandedConfig.has(carrierId),
                 });
@@ -340,10 +343,23 @@ export default class PacketBarPreferences extends ExtensionPreferences {
                         expandedConfig.delete(carrierId);
                 });
 
-                if (ui)
-                    addApiRows(expander, carrier, ui);
-                else
+                if (uis.length > 0) {
+                    // Zustand der Keys je Anbieter → Untertitel der Zeile
+                    const keyStates = {};
+                    const onKeyState = (providerId, hasKey) => {
+                        keyStates[providerId] = hasKey;
+                        expander.subtitle = 'Status per API • ' + uis
+                            .filter(id => id in keyStates)
+                            .map(id => `${PROVIDER_UI[id].name}-Key ${keyStates[id] ? 'hinterlegt' : 'fehlt'}`)
+                            .join(', ');
+                    };
+                    if (uis.length > 1)
+                        addSourceRow(expander, carrier, uis);
+                    for (const providerId of uis)
+                        addApiRows(expander, carrier, PROVIDER_UI[providerId], providerId, onKeyState);
+                } else {
                     addLinkRows(expander, carrier);
+                }
 
                 groupCarriers.add(expander);
                 carrierRows.push(expander);
@@ -369,10 +385,30 @@ export default class PacketBarPreferences extends ExtensionPreferences {
             }
         };
 
-        /** Versender mit Status-API: Zugangsdaten im GNOME-Schlüsselbund, nicht in dconf. */
-        const addApiRows = (expander, carrier, ui) => {
+        /** Auswahl der Status-Quelle, wenn ein Versender über mehrere Anbieter abfragbar ist. */
+        const addSourceRow = (expander, carrier, providerIds) => {
+            const choices = ['auto', ...providerIds];
+            const row = new Adw.ComboRow({
+                title: 'Status-Quelle',
+                subtitle: 'Automatisch: der erste Anbieter mit gültigem Key, sonst der nächste',
+                model: new Gtk.StringList({
+                    strings: ['Automatisch', ...providerIds.map(id => PROVIDER_UI[id].name)],
+                }),
+            });
+            const current = parseCarrierSources(settings.get_string('carrier-sources'))[carrier.id] ?? 'auto';
+            row.selected = Math.max(0, choices.indexOf(current));
+            row.connect('notify::selected', () => {
+                const map = parseCarrierSources(settings.get_string('carrier-sources'));
+                map[carrier.id] = choices[row.selected] ?? 'auto';
+                settings.set_string('carrier-sources', JSON.stringify(map));
+            });
+            expander.add_row(row);
+        };
+
+        /** Status-Anbieter mit Zugangsdaten im GNOME-Schlüsselbund, nicht in dconf. */
+        const addApiRows = (expander, carrier, ui, providerId, onKeyState) => {
             expander.add_row(new Adw.ActionRow({
-                title: 'Status-API',
+                title: `Status-API: ${ui.name}`,
                 subtitle: GLib.markup_escape_text(ui.description, -1),
             }));
 
@@ -394,7 +430,7 @@ export default class PacketBarPreferences extends ExtensionPreferences {
                 keyInfoRow.subtitle = key
                     ? 'Im GNOME-Schlüsselbund hinterlegt (verschlüsselt)'
                     : 'Kein Key hinterlegt';
-                expander.subtitle = key ? 'Status per API • Key hinterlegt' : 'Status per API • Key fehlt';
+                onKeyState(providerId, !!key);
             };
 
             lookupSecret(ui.secret)
@@ -443,11 +479,15 @@ export default class PacketBarPreferences extends ExtensionPreferences {
             portalRow.add_suffix(portalBtn);
             expander.add_row(portalRow);
 
-            expander.add_row(new Adw.ActionRow({
-                title: 'Link zur Sendungsverfolgung',
-                subtitle: GLib.markup_escape_text(carrier.trackUrl, -1),
-                subtitle_selectable: true,
-            }));
+            // Der Link gilt für den Versender, nicht für den Anbieter – nur einmal zeigen
+            const shown = carrier.providers.filter(id => PROVIDER_UI[id]);
+            if (providerId === shown[shown.length - 1]) {
+                expander.add_row(new Adw.ActionRow({
+                    title: 'Link zur Sendungsverfolgung',
+                    subtitle: GLib.markup_escape_text(carrier.trackUrl, -1),
+                    subtitle_selectable: true,
+                }));
+            }
         };
 
         rebuildCarrierPage();

@@ -79,7 +79,7 @@ test('gültige Datenbank wird bereinigt übernommen', () => {
     assert.equal(r.ok, true);
     assert.deepEqual(Object.keys(r.db).sort(), ['schema', 'shippers', 'updated', 'version']);
     assert.deepEqual(Object.keys(r.db.shippers[0]).sort(),
-        ['id', 'name', 'numberHint', 'provider', 'trackUrl']);
+        ['id', 'name', 'numberHint', 'provider', 'providers', 'trackUrl']);
 });
 
 test('Strukturfehler lehnen die ganze Datenbank ab', () => {
@@ -303,6 +303,40 @@ test('Versender-Datenbank: Provider 17TRACK', () => {
         assert.equal(byId[id].provider, '17track', id);
     assert.equal(byId.amazon.provider, undefined);
     assert.ok(sh.PROVIDERS.includes('17track'));
+    // DHL ist über beide Anbieter abfragbar, DHL-API zuerst
+    assert.deepEqual(byId.dhl.providers, ['dhl', '17track']);
+    assert.deepEqual(byId.ups.providers, ['17track']);
+});
+
+test('Status-Quelle: Kette der Anbieter und Einstellung', () => {
+    sh.applyShippers(sh.validateShipperDb(bundledRaw).db);
+    const dhl = u.getCarrier('dhl');
+    assert.deepEqual(sh.providerChain(dhl), ['dhl', '17track']);
+    assert.deepEqual(sh.providerChain(dhl, 'auto'), ['dhl', '17track']);
+    assert.deepEqual(sh.providerChain(dhl, '17track'), ['17track']);
+    assert.deepEqual(sh.providerChain(dhl, 'dhl'), ['dhl']);
+    // Wahl, die der Versender nicht anbietet, fällt auf automatisch zurück
+    assert.deepEqual(sh.providerChain(u.getCarrier('ups'), 'dhl'), ['17track']);
+    assert.deepEqual(sh.providerChain(u.getCarrier('amazon')), []);
+    assert.deepEqual(sh.providerChain(u.getCarrier('gibtsnicht')), []);
+
+    assert.deepEqual(sh.parseCarrierSources('{"dhl":"17track","ups":"auto","x":"evil","BAD":"dhl"}'),
+        { dhl: '17track', ups: 'auto' });
+    assert.deepEqual(sh.parseCarrierSources('nope'), {});
+    assert.deepEqual(sh.parseCarrierSources('[1]'), {});
+});
+
+test('Datenbank: providers-Liste wird bereinigt, altes Einzelfeld bleibt gültig', () => {
+    const r = sh.validateShipperDb({ schema: 1, version: 1, shippers: [
+        { id: 'a1', name: 'A', trackUrl: 'https://a.b/{number}', providers: ['17track', 'evil', 'dhl', 'dhl'] },
+        { id: 'b1', name: 'B', trackUrl: 'https://a.b/{number}', provider: 'dhl' },
+        { id: 'c1', name: 'C', trackUrl: 'https://a.b/{number}', providers: 'dhl' },
+    ] });
+    assert.deepEqual(r.db.shippers[0].providers, ['17track', 'dhl']);
+    assert.equal(r.db.shippers[0].provider, '17track');
+    assert.deepEqual(r.db.shippers[1].providers, ['dhl']);
+    assert.deepEqual(r.db.shippers[2].providers, []);
+    assert.equal(r.db.shippers[2].provider, null);
 });
 
 console.log(`${count} Tests bestanden`);

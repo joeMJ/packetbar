@@ -13,6 +13,7 @@ import { Track17Client } from './src/track17Client.js';
 import { UpdateChecker } from './src/updater.js';
 import { lookupSecretNoPrompt } from './src/secretStore.js';
 import { parseParcels, parseCache, dayKey, getCarrier } from './src/parcelUtil.js';
+import { parseCarrierSources, providerChain } from './src/shippers.js';
 import { loadShippers, updateShippers } from './src/shipperDb.js';
 
 const RATE_LIMIT_PAUSE_MS = 60 * 60 * 1000;
@@ -82,6 +83,8 @@ export default class PacketBarExtension extends Extension {
         });
         on('dhl-key-revision', () => this.refreshData({ force: true }));
         on('track17-key-revision', () => this.refreshData({ force: true }));
+        // Andere Status-Quelle für einen Versender gewählt → neu abfragen
+        on('carrier-sources', () => this.refreshData({ force: true }));
         // Datenbank in den Einstellungen aktualisiert → neu einlesen, kein Neustart nötig
         on('shipper-db-revision', () => {
             this._shipperInfo = loadShippers(this.path);
@@ -359,21 +362,24 @@ export default class PacketBarExtension extends Extension {
 
     /**
      * Fragt alle Sendungen eines Status-Anbieters nacheinander ab (Spike Arrest).
-     * @returns {Promise<{hint: object|null, offline: boolean}>}
+     * @returns {Promise<{hint: object|null, offline: boolean, resolved: Set<string>}>}
+     *   `resolved`: IDs der Sendungen, zu denen der Anbieter eine eindeutige Antwort geliefert
+     *   hat (Status oder „unbekannt“) – für alle anderen darf der nächste Anbieter einspringen.
      */
     async _fetchProvider(providerId, targets) {
         const provider = this._providers[providerId];
         const { client, secret: secretName } = provider;
+        const resolved = new Set();
 
         const { value: apiKey, locked } = await this._getSecret(secretName);
         if (!apiKey) {
             if (locked)
                 this._scheduleRetry(60);   // ohne Dialog warten, bis der Schlüsselbund entsperrt ist
-            return { hint: { kind: locked ? 'locked' : 'nokey', provider: providerId }, offline: false };
+            return { hint: { kind: locked ? 'locked' : 'nokey', provider: providerId }, offline: false, resolved };
         }
 
         if (Date.now() < provider.pausedUntil)
-            return { hint: { kind: 'ratelimit', provider: providerId }, offline: false };
+            return { hint: { kind: 'ratelimit', provider: providerId }, offline: false, resolved };
 
         let hint = null;
         let offline = false;
@@ -396,7 +402,9 @@ export default class PacketBarExtension extends Extension {
 
             if (res.ok) {
                 this._cache[parcel.id] = { ...res, fetchedAt: Date.now() };
+                resolved.add(parcel.id);
             } else if (res.error === 'notfound') {
+                resolved.add(parcel.id);
                 this._cache[parcel.id] = {
                     state: 'unknown',
                     statusText: 'Noch keine Daten',
@@ -423,7 +431,7 @@ export default class PacketBarExtension extends Extension {
                 await this._sleep(provider.gapMs);
         }
 
-        return { hint, offline };
+        return { hint, offline, resolved };
     }
 
     /**
@@ -471,16 +479,49 @@ export default class PacketBarExtension extends Extension {
             let offline = false;
             let fetched = false;
 
-            for (const providerId of Object.keys(this._providers)) {
-                const targets = parcels.filter(p =>
-                    getCarrier(p.carrier).provider === providerId && this._needsFetch(p, { onlyMissing }));
-                if (targets.length === 0)
-                    continue;
+            // Je Sendung eine Kette von Status-Anbietern (Einstellung „Status-Quelle“):
+            // Der erste kommt zuerst dran, kann er nicht antworten (z. B. Key fehlt oder wird
+            // abgelehnt), springt der nächste ein.
+            const sources = parseCarrierSources(this._settings.get_string('carrier-sources'));
+            const pending = parcels.filter(p => this._needsFetch(p, { onlyMissing }));
+            const chains = new Map(pending.map(p => [p.id,
+                providerChain(getCarrier(p.carrier), sources[p.carrier] ?? 'auto')
+                    .filter(id => this._providers[id])]));
+            const unresolved = new Set(pending.filter(p => chains.get(p.id).length > 0).map(p => p.id));
+            const hintFor = new Map();
+            const steps = Math.max(0, ...[...chains.values()].map(c => c.length));
 
-                const result = await this._fetchProvider(providerId, targets);
-                hint = hint ?? result.hint;
-                offline = offline || result.offline;
-                fetched = true;
+            for (let step = 0; step < steps && !offline; step++) {
+                const byProvider = new Map();
+                for (const p of pending) {
+                    const providerId = unresolved.has(p.id) ? chains.get(p.id)[step] : null;
+                    if (!providerId)
+                        continue;
+                    if (!byProvider.has(providerId))
+                        byProvider.set(providerId, []);
+                    byProvider.get(providerId).push(p);
+                }
+
+                for (const [providerId, targets] of byProvider) {
+                    const result = await this._fetchProvider(providerId, targets);
+                    offline = offline || result.offline;
+                    fetched = true;
+                    for (const id of result.resolved)
+                        unresolved.delete(id);
+                    if (result.hint) {
+                        for (const t of targets) {
+                            // Der Hinweis des zuerst versuchten Anbieters zählt
+                            if (!result.resolved.has(t.id) && !hintFor.has(t.id))
+                                hintFor.set(t.id, result.hint);
+                        }
+                    }
+                    if (offline)
+                        break;
+                }
+            }
+            // Hinweis nur für Sendungen, die am Ende von keinem Anbieter beantwortet wurden
+            for (const id of unresolved) {
+                hint = hint ?? hintFor.get(id) ?? null;
             }
             if (!this._settings || !this._indicator)
                 return;

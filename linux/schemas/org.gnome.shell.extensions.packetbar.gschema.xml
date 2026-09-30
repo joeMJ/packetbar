@@ -21,6 +21,12 @@
       <description>Zählt die heutigen API-Anfragen je Status-Anbieter, damit Tageslimits der Tracking-APIs nicht überschritten werden.</description>
     </key>
 
+    <key name="carrier-sources" type="s">
+      <default>'{}'</default>
+      <summary>Status-Quelle je Versender (JSON)</summary>
+      <description>Zuordnung Versender → Status-Anbieter ('auto' oder eine feste Wahl wie 'dhl' oder '17track'). Ohne Eintrag gilt 'auto'. Enthält keine Zugangsdaten.</description>
+    </key>
+
     <key name="hide-delivered-days" type="i">
       <range min="0" max="30"/>
       <default>3</default>
