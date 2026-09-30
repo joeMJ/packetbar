@@ -46,7 +46,7 @@ Voraussetzungen: GNOME Shell 46–50, `libglib2.0-bin` (`glib-compile-schemas`) 
 ## Einrichtung von DHL
 
 1. Auf [developer.dhl.com](https://developer.dhl.com/) ein kostenloses Konto anlegen, eine App erstellen und die API **Shipment Tracking – Unified** hinzufügen.
-2. In den Einstellungen von packetbar auf der Seite **DHL** den API-Key eintragen und mit dem Haken bestätigen. Er wird im Schlüsselbund gespeichert.
+2. In den Einstellungen von packetbar auf der Seite **DHL** den API-Key (in den App-Details als *Consumer Key*) eintragen und mit dem Haken bestätigen. Er wird im Schlüsselbund gespeichert. Neu erstellte Keys können laut DHL bis zu 24 Stunden brauchen, bis sie aktiv sind – bis dahin zeigt packetbar einen Auth-Hinweis.
 3. Auf der Seite **Sendungen** die DHL-Sendungsnummer eintragen.
 
 ## Aufbau

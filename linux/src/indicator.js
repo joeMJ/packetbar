@@ -25,7 +25,7 @@ const STATE_ICONS = {
 const HINT_TEXTS = {
     locked: 'Schlüsselbund gesperrt – DHL wird abgefragt, sobald er entsperrt ist.',
     nokey: 'Kein DHL-API-Key hinterlegt – bitte in den Einstellungen eintragen.',
-    auth: 'DHL lehnt den API-Key ab – bitte in den Einstellungen prüfen.',
+    auth: 'DHL lehnt den API-Key ab – bitte in den Einstellungen prüfen. Neu erstellte Keys können bis zu 24 Stunden brauchen, bis sie aktiv sind.',
     ratelimit: 'DHL-Anfragelimit erreicht – Abfragen pausieren eine Stunde.',
     budget: 'Tageslimit für DHL-Anfragen fast erreicht – morgen geht es weiter.',
 };
