@@ -1,0 +1,28 @@
+*.compiled
+gschemas.compiled
+schemas/gschemas.compiled
+linux/schemas/gschemas.compiled
+*~
+*.log
+.DS_Store
+*.zip
+
+# .NET / C#
+bin/
+obj/
+*.user
+*.suo
+.vs/
+*.dotCover
+
+# Zugangsdaten & lokale Konfiguration (nie committen)
+.env
+*.env
+secrets.*
+*.dconf
+dconf-*.ini
+.claude/settings.local.json
+
+# Signaturschlüssel (Windows-Build)
+*.pfx
+*.snk

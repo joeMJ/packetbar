@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=PacketBar Paketverfolgung
+GenericName=Paketverfolgung
+Comment=Zeigt in der GNOME-Leiste, welche Pakete unterwegs sind
+Exec=gnome-extensions prefs packetbar@johnlose.de
+Icon=package-x-generic
+Terminal=false
+Categories=GNOME;GTK;Utility;Settings;
+Keywords=Paket;Sendung;DHL;Tracking;Paketverfolgung;
+StartupNotify=true

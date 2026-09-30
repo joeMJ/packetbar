@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+  <schema id="org.gnome.shell.extensions.packetbar" path="/org/gnome/shell/extensions/packetbar/">
+
+    <!-- Sendungen -->
+    <key name="parcels" type="s">
+      <default>'[]'</default>
+      <summary>Eingetragene Sendungen (JSON)</summary>
+      <description>Liste der verfolgten Sendungen als JSON-Array mit id, carrier, number und label. Enthält keine Zugangsdaten.</description>
+    </key>
+
+    <key name="parcel-cache" type="s">
+      <default>'{}'</default>
+      <summary>Zwischengespeicherte Sendungsstatus (JSON)</summary>
+      <description>Zuletzt abgerufene Status je Sendung. Verhindert unnötige API-Abfragen, z. B. für bereits zugestellte Sendungen nach einem Neustart.</description>
+    </key>
+
+    <key name="request-budget" type="s">
+      <default>'{}'</default>
+      <summary>Anfragezähler pro Tag (JSON)</summary>
+      <description>Zählt die heutigen API-Anfragen, damit das Tageslimit der Tracking-API nicht überschritten wird.</description>
+    </key>
+
+    <key name="hide-delivered-days" type="i">
+      <range min="0" max="30"/>
+      <default>3</default>
+      <summary>Zugestellte Sendungen ausblenden nach (Tagen)</summary>
+      <description>Zugestellte Sendungen verschwinden nach dieser Zahl von Tagen aus dem Popup. 0 = nie ausblenden.</description>
+    </key>
+
+    <!-- Zugangsdaten (nur Änderungszähler; die Schlüssel liegen im Schlüsselbund) -->
+    <key name="dhl-key-revision" type="i">
+      <default>0</default>
+      <summary>Änderungszähler für den DHL-API-Key im Schlüsselbund</summary>
+      <description>Wird von den Einstellungen hochgezählt, wenn der Key im Schlüsselbund geändert wurde, damit die Extension neu abfragt.</description>
+    </key>
+
+    <!-- Layout & Panel -->
+    <key name="panel-position" type="s">
+      <choices>
+        <choice value="center"/>
+        <choice value="right"/>
+      </choices>
+      <default>'right'</default>
+      <summary>Position im Panel</summary>
+      <description>Platzierung des Icons: 'center' (neben Uhrzeit) oder 'right' (neben Netzwerk/Quick Settings).</description>
+    </key>
+
+    <key name="refresh-interval" type="i">
+      <range min="15" max="240"/>
+      <default>60</default>
+      <summary>Aktualisierungsintervall (Minuten)</summary>
+      <description>Intervall der Statusabfrage in Minuten. Die DHL-API erlaubt standardmäßig 250 Anfragen pro Tag, daher ist das Minimum 15 Minuten.</description>
+    </key>
+
+    <!-- Update Settings -->
+    <key name="update-check-enabled" type="b">
+      <default>true</default>
+      <summary>Aktualitätsprüfung aktiv</summary>
+      <description>Prüft regelmäßig auf neuere Versionen im Git-Repository.</description>
+    </key>
+
+    <key name="git-update-url" type="s">
+      <default>'https://github.com/joeMJ/packetbar.git'</default>
+      <summary>Git Clone / Update URL</summary>
+      <description>Git-Remote-URL für Skript-Updates.</description>
+    </key>
+
+    <key name="git-raw-metadata-url" type="s">
+      <default>'https://raw.githubusercontent.com/joeMJ/packetbar/main/linux/metadata.json'</default>
+      <summary>Git Raw Metadata URL</summary>
+      <description>HTTP(S)-URL zur Prüfung der neuesten metadata.json.</description>
+    </key>
+
+  </schema>
+</schemalist>

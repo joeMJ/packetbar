@@ -1,0 +1,211 @@
+/* stylesheet.css - Styling für packetbar GNOME Shell Extension */
+
+/* Panel Bar */
+.packetbar-panel-box {
+    spacing: 6px;
+    padding: 0 4px;
+    font-feature-settings: "tnum";
+}
+
+.packetbar-panel-icon {
+    icon-size: 16px;
+}
+
+.packetbar-panel-label {
+    font-weight: normal;
+    font-size: inherit;
+}
+
+.packetbar-panel-problem .packetbar-panel-icon {
+    color: #ff7b63;
+}
+
+/* Popup Menü */
+.packetbar-menu {
+    min-width: 430px;
+    max-width: 520px;
+}
+
+.packetbar-content-box {
+    padding: 8px 12px;
+    spacing: 8px;
+}
+
+/* Update Banner */
+.packetbar-update-banner {
+    background-color: rgba(53, 132, 228, 0.25);
+    border: 1px solid rgba(53, 132, 228, 0.6);
+    border-radius: 8px;
+    padding: 6px 10px;
+    spacing: 8px;
+    margin-bottom: 4px;
+}
+
+.packetbar-update-icon {
+    icon-size: 18px;
+    color: #3584e4;
+}
+
+.packetbar-update-text {
+    font-size: 10pt;
+    font-weight: bold;
+    color: #ffffff;
+}
+
+/* Hinweis Banner */
+.packetbar-hint-banner {
+    background-color: rgba(245, 194, 17, 0.18);
+    border: 1px solid rgba(245, 194, 17, 0.55);
+    border-radius: 8px;
+    padding: 6px 10px;
+    spacing: 8px;
+}
+
+.packetbar-hint-icon {
+    icon-size: 18px;
+    color: #f5c211;
+}
+
+.packetbar-hint-text {
+    font-size: 9.5pt;
+    font-weight: 500;
+}
+
+/* Sektions-Titel */
+.packetbar-section-title-box {
+    padding: 3px 0 2px 0;
+}
+
+.packetbar-section-title {
+    font-size: 10pt;
+    font-weight: bold;
+    text-transform: none;
+    letter-spacing: 0.2px;
+    opacity: 0.75;
+}
+
+.packetbar-section-summary {
+    font-size: 8.5pt;
+    font-weight: 600;
+    opacity: 0.85;
+}
+
+/* Sendungs-Karten */
+.packetbar-list-box {
+    spacing: 6px;
+}
+
+.packetbar-card {
+    background-color: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 10px;
+    padding: 8px 10px;
+}
+
+.packetbar-card:hover,
+.packetbar-card:focus {
+    background-color: rgba(255, 255, 255, 0.11);
+}
+
+.packetbar-card-row {
+    spacing: 12px;
+}
+
+.packetbar-card-icon {
+    color: #78aeed;
+}
+
+.packetbar-card-info {
+    spacing: 1px;
+}
+
+.packetbar-card-title {
+    font-size: 11pt;
+    font-weight: bold;
+}
+
+.packetbar-card-subtitle {
+    font-size: 8.5pt;
+    opacity: 0.6;
+}
+
+.packetbar-card-status {
+    font-size: 9.5pt;
+    font-weight: 600;
+    color: #78aeed;
+    margin-top: 2px;
+}
+
+.packetbar-card-detail {
+    font-size: 8.5pt;
+    opacity: 0.75;
+}
+
+.packetbar-card-eta-box {
+    spacing: 1px;
+    padding-left: 8px;
+}
+
+.packetbar-card-eta-caption {
+    font-size: 8pt;
+    opacity: 0.6;
+}
+
+.packetbar-card-eta {
+    font-size: 11pt;
+    font-weight: bold;
+}
+
+/* Status-Farben */
+.packetbar-card-delivered .packetbar-card-icon,
+.packetbar-card-delivered .packetbar-card-status {
+    color: #57e389;
+}
+
+.packetbar-card-failure {
+    border-color: rgba(255, 123, 99, 0.6);
+}
+
+.packetbar-card-failure .packetbar-card-icon,
+.packetbar-card-failure .packetbar-card-status {
+    color: #ff7b63;
+}
+
+.packetbar-card-preTransit .packetbar-card-icon,
+.packetbar-card-preTransit .packetbar-card-status,
+.packetbar-card-unknown .packetbar-card-icon,
+.packetbar-card-unknown .packetbar-card-status {
+    color: #c0bfbc;
+}
+
+.packetbar-card-manual .packetbar-card-status {
+    color: inherit;
+    opacity: 0.6;
+    font-weight: normal;
+}
+
+.packetbar-card-manual .packetbar-card-icon {
+    opacity: 0.6;
+}
+
+/* Footer */
+.packetbar-footer-box {
+    spacing: 8px;
+    padding-top: 4px;
+}
+
+.packetbar-footer-text {
+    font-size: 9pt;
+    opacity: 0.6;
+}
+
+.packetbar-icon-button {
+    padding: 5px 8px;
+    border-radius: 6px;
+}
+
+.packetbar-empty-placeholder {
+    font-size: 9.5pt;
+    opacity: 0.6;
+    padding: 10px 4px;
+}
