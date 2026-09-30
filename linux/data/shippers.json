@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "version": 6,
+  "version": 7,
   "updated": "2026-09-30",
   "statusMaps": {
     "17track": {
@@ -74,8 +74,8 @@
       "name": "DHL",
       "provider": "dhl",
       "providers": [
-        "dhl",
-        "17track"
+        "17track",
+        "dhl"
       ],
       "providerOptions": {
         "17track": {

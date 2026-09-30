@@ -51,7 +51,9 @@ Oder aus einem Klon: `./install.sh`. Danach unter Wayland einmal ab- und wieder 
 
 Voraussetzungen: GNOME Shell 46–50, `libglib2.0-bin` (`glib-compile-schemas`) und `gir1.2-secret-1` (libsecret).
 
-## Einrichtung von DHL
+## Einrichtung von DHL (optional, nur mit Firmenkonto)
+
+> **Wichtig:** DHL vergibt API-Keys für die Tracking-API nur an Firmen. Im DHL Developer Portal wird die Anfrage ohne gültigen Firmennamen und passende Firmen-E-Mail-Adresse abgelehnt. Für Privatpersonen ist der empfohlene Weg deshalb **17TRACK** (siehe unten): DHL-Sendungen laufen dann darüber, ohne DHL-Key. Die DHL-API ist nur noch ein optionaler zweiter Weg, den du bei „Status-Quelle“ ausdrücklich wählen kannst.
 
 1. Auf [developer.dhl.com](https://developer.dhl.com/) ein kostenloses Konto anlegen, eine App erstellen und die API **Shipment Tracking – Unified** hinzufügen.
 2. In den Einstellungen von packetbar auf der Seite **Versender** die Zeile **DHL** aufklappen und den API-Key (in den App-Details als *Consumer Key*) eintragen und mit dem Haken bestätigen. Er wird im Schlüsselbund gespeichert. Neu erstellte Keys können laut DHL bis zu 24 Stunden brauchen, bis sie aktiv sind – bis dahin zeigt packetbar einen Auth-Hinweis.

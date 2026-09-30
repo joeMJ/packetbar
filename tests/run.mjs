@@ -42,7 +42,7 @@ test('mitgelieferte Datenbank ist vollständig gültig (nichts übersprungen)', 
 test('mitgelieferte Datenbank: DHL hat die Status-API, alle Links sind https', () => {
     const r = sh.validateShipperDb(bundledRaw);
     const byId = Object.fromEntries(r.db.shippers.map(s => [s.id, s]));
-    assert.equal(byId.dhl.provider, 'dhl');
+    assert.equal(byId.dhl.provider, '17track');   // erster Anbieter der Liste
     for (const id of ['ups', 'dpd', 'gls'])
         assert.equal(byId[id].provider, '17track', id);
     assert.equal(byId.amazon.provider, null);
@@ -303,8 +303,8 @@ test('Versender-Datenbank: Provider 17TRACK', () => {
         assert.equal(byId[id].provider, '17track', id);
     assert.equal(byId.amazon.provider, undefined);
     assert.ok(sh.PROVIDERS.includes('17track'));
-    // DHL ist über beide Anbieter abfragbar, DHL-API zuerst
-    assert.deepEqual(byId.dhl.providers, ['dhl', '17track']);
+    // DHL ist über beide Anbieter abfragbar, 17TRACK zuerst (DHL vergibt API-Keys nur an Firmen)
+    assert.deepEqual(byId.dhl.providers, ['17track', 'dhl']);
     assert.deepEqual(byId.ups.providers, ['17track']);
 });
 
@@ -361,8 +361,8 @@ test('Abfrageintervall je Versender', () => {
 test('Status-Quelle: Kette der Anbieter und Einstellung', () => {
     sh.applyShippers(sh.validateShipperDb(bundledRaw).db);
     const dhl = u.getCarrier('dhl');
-    assert.deepEqual(sh.providerChain(dhl), ['dhl', '17track']);
-    assert.deepEqual(sh.providerChain(dhl, 'auto'), ['dhl', '17track']);
+    assert.deepEqual(sh.providerChain(dhl), ['17track', 'dhl']);
+    assert.deepEqual(sh.providerChain(dhl, 'auto'), ['17track', 'dhl']);
     assert.deepEqual(sh.providerChain(dhl, '17track'), ['17track']);
     assert.deepEqual(sh.providerChain(dhl, 'dhl'), ['dhl']);
     // Wahl, die der Versender nicht anbietet, fällt auf automatisch zurück
