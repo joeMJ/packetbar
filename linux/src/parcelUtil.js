@@ -3,10 +3,12 @@
  * Sendungsliste, Normalisierung der DHL-Antwort, Datums-Formatierung.
  */
 
-import { CARRIERS } from './shippers.js';
+import { CARRIERS, getStatusEntry, getIntervalChoices } from './shippers.js';
 
 // Die Versender kommen aus der Versender-Datenbank (data/shippers.json), siehe shippers.js.
-export { CARRIERS, carrierIds, getCarrier } from './shippers.js';
+export {
+    CARRIERS, carrierIds, getCarrier, getIntervalChoices, matchesNumber, detectCarrier,
+} from './shippers.js';
 
 export const STATE_LABELS = {
     preTransit: 'Angekündigt',
@@ -125,9 +127,6 @@ export function withCacheBuster(url, now = Date.now()) {
     return `${base}${base.includes('?') ? '&' : '?'}cb=${now}`;
 }
 
-/** Auswahl für das Abfrageintervall je Versender (Minuten). */
-export const INTERVAL_CHOICES = [15, 30, 60, 120, 180, 240];
-
 /**
  * Einstellung „Abfrageintervall je Versender“ (JSON in GSettings) lesen:
  * `{dhl: 15, dpd: 180}`. Ungültige Einträge werden verworfen.
@@ -143,7 +142,7 @@ export function parseCarrierIntervals(json) {
     if (!data || typeof data !== 'object' || Array.isArray(data))
         return result;
     for (const [carrier, minutes] of Object.entries(data)) {
-        if (/^[a-z0-9-]{2,20}$/.test(carrier) && INTERVAL_CHOICES.includes(minutes))
+        if (/^[a-z0-9-]{2,20}$/.test(carrier) && Number.isInteger(minutes) && minutes >= 15 && minutes <= 1440)
             result[carrier] = minutes;
     }
     return result;
@@ -165,6 +164,51 @@ export function isDue({ entry, attemptAt = 0, intervalMin, now = Date.now() }) {
 }
 
 /**
+ * Welches Abfrageintervall (Minuten) gilt für einen Versender? Reihenfolge:
+ * eigene Wahl beim Versender → allgemeines Intervall, wenn der Nutzer es geändert hat →
+ * Vorgabe des Versenders aus der Datenbank → eingebaute Vorgabe. Nie unter dem Mindestwert.
+ *
+ * @param {{own?: number, globalMin?: number, globalIsUserSet?: boolean,
+ *          carrier?: {defaultInterval?: number|null, minInterval?: number|null}}} args
+ */
+export function effectiveInterval({ own, globalMin = 60, globalIsUserSet = false, carrier = {} }) {
+    const base = own ?? (globalIsUserSet ? globalMin : (carrier.defaultInterval ?? globalMin));
+    return Math.max(15, base, carrier.minInterval ?? 0);
+}
+
+/**
+ * Welche Benachrichtigungen sind für eine Sendung fällig? Jede Art höchstens einmal pro Tag.
+ *
+ * @param {{entry?: object, notified?: {today?: string, soon?: string},
+ *          now?: number, opts: {today: boolean, soon: boolean, soonMinutes: number}}} args
+ * @returns {('today'|'soon')[]}
+ */
+export function notificationsDue({ entry, notified = {}, now = Date.now(), opts }) {
+    if (!entry || entry.state === 'delivered' || entry.state === 'failure')
+        return [];
+    const day = dayKey(new Date(now));
+    const due = [];
+
+    if (opts.today && notified.today !== day && (entry.today || isToday(entry.eta, now)))
+        due.push('today');
+
+    if (opts.soon && notified.soon !== day && entry.etaFromMs) {
+        const leadMs = opts.soonMinutes * 60 * 1000;
+        if (now >= entry.etaFromMs - leadMs && now <= entry.etaToMs)
+            due.push('soon');
+    }
+    return due;
+}
+
+/** Liegt das (ISO-)Datum von `iso` am selben Kalendertag wie `now`? */
+export function isToday(iso, now = Date.now()) {
+    if (!iso)
+        return false;
+    const d = new Date(iso);
+    return !Number.isNaN(d.getTime()) && dayKey(d) === dayKey(new Date(now));
+}
+
+/**
  * Noch nicht zugestellt = zählt im Panel als „unterwegs“.
  */
 export function isActive(entry) {
@@ -174,14 +218,6 @@ export function isActive(entry) {
 // ---------------------------------------------------------------------------
 // DHL: Antwort der Shipment Tracking Unified API normalisieren
 // ---------------------------------------------------------------------------
-
-const DHL_STATE = {
-    'pre-transit': 'preTransit',
-    'transit': 'transit',
-    'delivered': 'delivered',
-    'failure': 'failure',
-    'unknown': 'unknown',
-};
 
 /**
  * @param {object} data - geparste JSON-Antwort von GET /track/shipments
@@ -196,7 +232,8 @@ export function normalizeDhlResponse(data) {
 
     const status = shipment.status ?? {};
     const lastEvent = Array.isArray(shipment.events) ? shipment.events[0] : null;
-    const state = DHL_STATE[String(status.statusCode ?? '').toLowerCase()] ?? 'unknown';
+    const entryMap = getStatusEntry('dhl', String(status.statusCode ?? '').toLowerCase());
+    const state = entryMap?.state ?? 'unknown';
 
     const statusText = String(status.status || status.description || STATE_LABELS[state]);
     const rawDetail = String(status.description || lastEvent?.description || '');
@@ -216,6 +253,9 @@ export function normalizeDhlResponse(data) {
         location,
         timestampMs: Number.isNaN(timestampMs) ? null : timestampMs,
         eta: String(shipment.estimatedTimeOfDelivery ?? ''),
+        today: state !== 'delivered' && entryMap?.today === true,
+        etaFromMs: null,
+        etaToMs: null,
     };
 }
 
@@ -239,18 +279,6 @@ export function dhlHttpError(status) {
 // ---------------------------------------------------------------------------
 // 17TRACK: Antworten der Tracking-API (v2.4) normalisieren
 // ---------------------------------------------------------------------------
-
-const TRACK17_STATE = {
-    NotFound: ['unknown', 'Noch keine Daten'],
-    InfoReceived: ['preTransit', 'Angekündigt'],
-    InTransit: ['transit', 'Unterwegs'],
-    Expired: ['unknown', 'Keine Updates mehr'],
-    AvailableForPickup: ['transit', 'Abholbereit'],
-    OutForDelivery: ['transit', 'In Zustellung'],
-    DeliveryFailure: ['failure', 'Zustellung fehlgeschlagen'],
-    Delivered: ['delivered', 'Zugestellt'],
-    Exception: ['failure', 'Zustellproblem'],
-};
 
 /**
  * Fehlercodes aus `rejected[].error.code` (register / gettrackinfo).
@@ -277,7 +305,9 @@ export function normalizeTrack17Info(accepted) {
     const latestStatus = info.latest_status ?? {};
     const latestEvent = info.latest_event ?? {};
 
-    const [state, label] = TRACK17_STATE[String(latestStatus.status ?? '')] ?? ['unknown', STATE_LABELS.unknown];
+    const known = getStatusEntry('17track', String(latestStatus.status ?? ''));
+    const state = known?.state ?? 'unknown';
+    const label = known?.label ?? STATE_LABELS[state];
 
     const description = String(latestEvent.description ?? '').trim();
     const rawLocation = latestEvent.location;
@@ -287,6 +317,7 @@ export function normalizeTrack17Info(accepted) {
     const timestampMs = timestamp ? Date.parse(timestamp) : NaN;
 
     const eta = info.time_metrics?.estimated_delivery_date ?? {};
+    const window = parseEtaWindow(eta.from, eta.to);
 
     return {
         ok: true,
@@ -296,7 +327,30 @@ export function normalizeTrack17Info(accepted) {
         location,
         timestampMs: Number.isNaN(timestampMs) ? null : timestampMs,
         eta: String(eta.from ?? eta.to ?? ''),
+        today: state !== 'delivered' && known?.today === true,
+        etaFromMs: window.fromMs,
+        etaToMs: window.toMs,
     };
+}
+
+/**
+ * Zustellfenster aus den ETA-Angaben. Nur wenn eine Uhrzeit dabei ist (nicht 00:00),
+ * sonst ist es nur ein Datum und es gibt kein Fenster für „in Kürze“.
+ */
+export function parseEtaWindow(from, to) {
+    const parse = value => {
+        if (typeof value !== 'string' || !/T\d{2}:\d{2}/.test(value))
+            return null;
+        if (/T00:00(:00)?(\.0+)?(Z|[+-]\d{2}:?\d{2})?$/.test(value))
+            return null;
+        const ms = Date.parse(value);
+        return Number.isNaN(ms) ? null : ms;
+    };
+    const fromMs = parse(from);
+    const toMs = parse(to);
+    if (fromMs === null && toMs === null)
+        return { fromMs: null, toMs: null };
+    return { fromMs: fromMs ?? toMs, toMs: toMs ?? fromMs };
 }
 
 /**
@@ -408,6 +462,11 @@ export function formatDateTime(ms) {
 /**
  * Tag für das Anfrage-Budget (lokales Datum, YYYY-MM-DD).
  */
+export function formatTime(ms) {
+    const d = new Date(ms);
+    return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 export function dayKey(now = new Date()) {
     return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
 }

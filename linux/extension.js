@@ -14,6 +14,7 @@ import { UpdateChecker } from './src/updater.js';
 import { lookupSecretNoPrompt } from './src/secretStore.js';
 import {
     parseParcels, parseCache, dayKey, getCarrier, parseCarrierIntervals, isDue,
+    effectiveInterval, notificationsDue, formatTime,
 } from './src/parcelUtil.js';
 import { parseCarrierSources, providerChain } from './src/shippers.js';
 import { loadShippers, updateShippers } from './src/shipperDb.js';
@@ -250,8 +251,89 @@ export default class PacketBarExtension extends Extension {
 
     /** Abfrageintervall (Minuten) für einen Versender: eigene Einstellung oder das Standardintervall. */
     _intervalFor(carrierId) {
-        const own = parseCarrierIntervals(this._settings.get_string('carrier-intervals'))[carrierId];
-        return own ?? this._intervalMinutes();
+        return effectiveInterval({
+            own: parseCarrierIntervals(this._settings.get_string('carrier-intervals'))[carrierId],
+            globalMin: this._intervalMinutes(),
+            // Hat der Nutzer das allgemeine Intervall nie angefasst, gilt die Vorgabe des Versenders
+            globalIsUserSet: this._settings.get_user_value('refresh-interval') !== null,
+            carrier: getCarrier(carrierId),
+        });
+    }
+
+    // -----------------------------------------------------------------------
+    // Benachrichtigungen
+    // -----------------------------------------------------------------------
+
+    _loadNotified() {
+        try {
+            const data = JSON.parse(this._settings.get_string('notified-events') || '{}');
+            return data && typeof data === 'object' && !Array.isArray(data) ? data : {};
+        } catch (_e) {
+            return {};
+        }
+    }
+
+    /**
+     * Prüft für alle Sendungen, ob eine Benachrichtigung fällig ist („heute“, „in Kürze“).
+     * Jede Art wird je Sendung höchstens einmal pro Tag gemeldet, auch über Neustarts hinweg.
+     */
+    _checkNotifications() {
+        if (!this._settings)
+            return;
+        const opts = {
+            today: this._settings.get_boolean('notify-today'),
+            soon: this._settings.get_boolean('notify-soon'),
+            soonMinutes: this._settings.get_int('notify-soon-minutes'),
+        };
+        const parcels = parseParcels(this._settings.get_string('parcels'));
+        const notified = this._loadNotified();
+        let changed = false;
+
+        // Einträge entfernter Sendungen verwerfen
+        const ids = new Set(parcels.map(p => p.id));
+        for (const id of Object.keys(notified)) {
+            if (!ids.has(id)) {
+                delete notified[id];
+                changed = true;
+            }
+        }
+
+        if (opts.today || opts.soon) {
+            const now = Date.now();
+            for (const parcel of parcels) {
+                const entry = this._cache[parcel.id];
+                const due = notificationsDue({ entry, notified: notified[parcel.id], now, opts });
+                for (const kind of due) {
+                    this._notify(parcel, entry, kind);
+                    notified[parcel.id] = { ...notified[parcel.id], [kind]: dayKey(new Date(now)) };
+                    changed = true;
+                }
+            }
+        }
+
+        if (changed)
+            this._settings.set_string('notified-events', JSON.stringify(notified));
+    }
+
+    _notify(parcel, entry, kind) {
+        const carrier = getCarrier(parcel.carrier);
+        const name = parcel.label || parcel.number;
+        let title;
+        let body;
+        if (kind === 'soon') {
+            title = 'Dein Paket kommt gleich';
+            const from = formatTime(entry.etaFromMs);
+            const to = formatTime(entry.etaToMs);
+            body = `${name} (${carrier.name}) – Zustellung ${from === to ? `gegen ${from}` : `zwischen ${from} und ${to}`} Uhr`;
+        } else {
+            title = 'Dein Paket wird heute zugestellt';
+            body = `${name} (${carrier.name})`;
+        }
+        try {
+            Main.notify(title, body);
+        } catch (e) {
+            console.warn(`[packetbar] Benachrichtigung fehlgeschlagen: ${e.message}`);
+        }
     }
 
     _restartTimer() {
@@ -607,6 +689,7 @@ export default class PacketBarExtension extends Extension {
             this._refreshing = false;
         }
 
+        this._checkNotifications();
         this._applyDataToUI();
 
         if (this._pendingRefresh) {

@@ -12,7 +12,8 @@ import { UpdateChecker } from './src/updater.js';
 import { loadShippers, updateShippers, shipperInfo } from './src/shipperDb.js';
 import { parseCarrierSources } from './src/shippers.js';
 import {
-    carrierIds, getCarrier, parseParcels, parseCarrierIntervals, INTERVAL_CHOICES, serializeParcels, makeParcel, normalizeNumber,
+    carrierIds, getCarrier, parseParcels, parseCarrierIntervals, getIntervalChoices, effectiveInterval,
+    matchesNumber, detectCarrier, serializeParcels, makeParcel, normalizeNumber,
     validateNumber, parseCache,
 } from './src/parcelUtil.js';
 
@@ -47,7 +48,7 @@ export default class PacketBarPreferences extends ExtensionPreferences {
         loadShippers(this.path);
 
         // ==========================================
-        // Seite 1: Sendungen & Anzeige
+        // Seite 1: Sendungen
         // ==========================================
         const pageParcels = new Adw.PreferencesPage({
             title: 'Sendungen',
@@ -102,6 +103,24 @@ export default class PacketBarPreferences extends ExtensionPreferences {
         };
         carrierRow.connect('notify::selected', showCarrierHint);
         showCarrierHint();
+
+        // Nummernformat prüfen (Muster aus der Datenbank): nur ein Hinweis, kein Verbot.
+        // Passt die Nummer zu genau einem anderen Versender, wird dieser vorgewählt.
+        numberRow.connect('changed', () => {
+            const number = normalizeNumber(numberRow.text);
+            if (number.length < 6)
+                return;
+            const carrier = getCarrier(carrierIds()[carrierRow.selected]);
+            if (matchesNumber(carrier, number) !== false)
+                return;
+            const detected = detectCarrier(number);
+            if (detected) {
+                carrierRow.selected = carrierIds().indexOf(detected);
+                addRow.subtitle = `Versender erkannt: ${getCarrier(detected).name}`;
+            } else {
+                addRow.subtitle = `Passt nicht zum üblichen Format von ${carrier.name} – wird trotzdem hinzugefügt`;
+            }
+        });
 
         // --- Liste: je Versender eine aufklappbare Zeile ---
         const groupList = new Adw.PreferencesGroup({
@@ -248,54 +267,6 @@ export default class PacketBarPreferences extends ExtensionPreferences {
         numberRow.connect('entry-activated', addParcel);
         labelRow.connect('entry-activated', addParcel);
 
-        // --- Anzeige ---
-        const groupPanel = new Adw.PreferencesGroup({
-            title: 'Anzeige & Abfrage',
-            description: 'Die Zahl neben dem Paket-Symbol zeigt, wie viele Sendungen noch unterwegs sind',
-        });
-        pageParcels.add(groupPanel);
-
-        const positionRow = new Adw.ComboRow({
-            title: 'Position im Panel',
-            subtitle: 'Wähle den Anzeigeort in der oberen Leiste',
-            model: new Gtk.StringList({
-                strings: ['Mitte (neben Datum/Uhrzeit)', 'Rechts (neben Quick Settings)'],
-            }),
-        });
-        positionRow.selected = settings.get_string('panel-position') === 'center' ? 0 : 1;
-        positionRow.connect('notify::selected', () => {
-            settings.set_string('panel-position', positionRow.selected === 0 ? 'center' : 'right');
-        });
-        groupPanel.add(positionRow);
-
-        const intervalRow = new Adw.SpinRow({
-            title: 'Standard-Aktualisierungsintervall',
-            subtitle: 'Minuten zwischen zwei Abfragen, wenn beim Versender nichts anderes eingestellt ist (Seite „Versender“). Die DHL-API erlaubt 250 Anfragen pro Tag – zugestellte Sendungen werden nicht mehr abgefragt.',
-            adjustment: new Gtk.Adjustment({
-                lower: 15,
-                upper: 240,
-                step_increment: 5,
-                page_increment: 30,
-                value: settings.get_int('refresh-interval'),
-            }),
-        });
-        settings.bind('refresh-interval', intervalRow, 'value', Gio.SettingsBindFlags.DEFAULT);
-        groupPanel.add(intervalRow);
-
-        const hideRow = new Adw.SpinRow({
-            title: 'Zugestellte Sendungen ausblenden nach',
-            subtitle: 'Tage nach der Zustellung (0 = nie ausblenden)',
-            adjustment: new Gtk.Adjustment({
-                lower: 0,
-                upper: 30,
-                step_increment: 1,
-                page_increment: 5,
-                value: settings.get_int('hide-delivered-days'),
-            }),
-        });
-        settings.bind('hide-delivered-days', hideRow, 'value', Gio.SettingsBindFlags.DEFAULT);
-        groupPanel.add(hideRow);
-
         // ==========================================
         // Seite 2: Versender (aufklappbar je Versender, aus der Datenbank)
         // ==========================================
@@ -386,25 +357,38 @@ export default class PacketBarPreferences extends ExtensionPreferences {
             }
         };
 
-        /** Abfrageintervall je Versender; „Standard“ folgt dem allgemeinen Intervall. */
+        /** Abfrageintervall je Versender; „Standard“ = das, was ohne eigene Wahl gilt. */
         const addIntervalRow = (expander, carrier) => {
             const label = min => (min < 60 ? `${min} Minuten` : min === 60 ? '1 Stunde' : `${min / 60} Stunden`);
+            const current = parseCarrierIntervals(settings.get_string('carrier-intervals'))[carrier.id];
+            const fallback = effectiveInterval({
+                globalMin: settings.get_int('refresh-interval'),
+                globalIsUserSet: settings.get_user_value('refresh-interval') !== null,
+                carrier,
+            });
+            // Auswahl aus der Datenbank, nicht unter dem Mindestwert des Versenders; eine
+            // frühere eigene Wahl bleibt sichtbar, auch wenn sie nicht mehr in der Liste steht.
+            const choices = new Set(getIntervalChoices().filter(m => m >= (carrier.minInterval ?? 0)));
+            if (current)
+                choices.add(current);
+            const options = [...choices].sort((a, b) => a - b);
+
             const row = new Adw.ComboRow({
                 title: 'Abfrageintervall',
-                subtitle: 'Wie oft der Status dieses Versenders abgefragt wird',
+                subtitle: carrier.minInterval
+                    ? `Wie oft der Status dieses Versenders abgefragt wird (mindestens ${label(carrier.minInterval)})`
+                    : 'Wie oft der Status dieses Versenders abgefragt wird',
                 model: new Gtk.StringList({
-                    strings: [`Standard (${label(settings.get_int('refresh-interval'))})`,
-                        ...INTERVAL_CHOICES.map(label)],
+                    strings: [`Standard (${label(fallback)})`, ...options.map(label)],
                 }),
             });
-            const current = parseCarrierIntervals(settings.get_string('carrier-intervals'))[carrier.id];
-            row.selected = current ? INTERVAL_CHOICES.indexOf(current) + 1 : 0;
+            row.selected = current ? options.indexOf(current) + 1 : 0;
             row.connect('notify::selected', () => {
                 const map = parseCarrierIntervals(settings.get_string('carrier-intervals'));
                 if (row.selected === 0)
                     delete map[carrier.id];
                 else
-                    map[carrier.id] = INTERVAL_CHOICES[row.selected - 1];
+                    map[carrier.id] = options[row.selected - 1];
                 settings.set_string('carrier-intervals', JSON.stringify(map));
             });
             expander.add_row(row);
@@ -540,7 +524,99 @@ export default class PacketBarPreferences extends ExtensionPreferences {
         });
 
         // ==========================================
-        // Seite 3: Updates
+        // Seite 3: Allgemein (Anzeige, Abfrage, Benachrichtigungen)
+        // ==========================================
+        const pageGeneral = new Adw.PreferencesPage({
+            title: 'Allgemein',
+            icon_name: 'preferences-system-symbolic',
+        });
+        window.add(pageGeneral);
+
+        const groupPanel = new Adw.PreferencesGroup({
+            title: 'Anzeige',
+            description: 'Die Zahl neben dem Paket-Symbol zeigt, wie viele Sendungen noch unterwegs sind.',
+        });
+        pageGeneral.add(groupPanel);
+
+        const positionRow = new Adw.ComboRow({
+            title: 'Position im Panel',
+            subtitle: 'Wähle den Anzeigeort in der oberen Leiste',
+            model: new Gtk.StringList({
+                strings: ['Mitte (neben Datum/Uhrzeit)', 'Rechts (neben Quick Settings)'],
+            }),
+        });
+        positionRow.selected = settings.get_string('panel-position') === 'center' ? 0 : 1;
+        positionRow.connect('notify::selected', () => {
+            settings.set_string('panel-position', positionRow.selected === 0 ? 'center' : 'right');
+        });
+        groupPanel.add(positionRow);
+
+        const intervalRow = new Adw.SpinRow({
+            title: 'Standard-Aktualisierungsintervall',
+            subtitle: 'Minuten zwischen zwei Abfragen für alle Versender ohne eigene Einstellung (Seite „Versender“). Solange du das nie änderst, gilt die Vorgabe des jeweiligen Versenders. Zugestellte Sendungen werden nicht mehr abgefragt.',
+            adjustment: new Gtk.Adjustment({
+                lower: 15,
+                upper: 240,
+                step_increment: 5,
+                page_increment: 30,
+                value: settings.get_int('refresh-interval'),
+            }),
+        });
+        settings.bind('refresh-interval', intervalRow, 'value', Gio.SettingsBindFlags.DEFAULT);
+        groupPanel.add(intervalRow);
+
+        const hideRow = new Adw.SpinRow({
+            title: 'Zugestellte Sendungen ausblenden nach',
+            subtitle: 'Tage nach der Zustellung (0 = nie ausblenden)',
+            adjustment: new Gtk.Adjustment({
+                lower: 0,
+                upper: 30,
+                step_increment: 1,
+                page_increment: 5,
+                value: settings.get_int('hide-delivered-days'),
+            }),
+        });
+        settings.bind('hide-delivered-days', hideRow, 'value', Gio.SettingsBindFlags.DEFAULT);
+        groupPanel.add(hideRow);
+
+        // --- Benachrichtigungen ---
+        const groupNotify = new Adw.PreferencesGroup({
+            title: 'Benachrichtigungen',
+            description: 'Jede Meldung kommt je Sendung höchstens einmal pro Tag.',
+        });
+        pageGeneral.add(groupNotify);
+
+        const notifyToday = new Adw.SwitchRow({
+            title: 'Sendung wird heute zugestellt',
+            subtitle: 'Sobald der Versender meldet, dass das Paket heute kommt (z. B. „In Zustellung“)',
+        });
+        settings.bind('notify-today', notifyToday, 'active', Gio.SettingsBindFlags.DEFAULT);
+        groupNotify.add(notifyToday);
+
+        const notifySoon = new Adw.SwitchRow({
+            title: 'Sendung kommt in Kürze',
+            subtitle: 'Wenn der Versender ein Zustellfenster mit Uhrzeit angibt und es bald beginnt. Nicht jeder Versender liefert diese Angabe; bei DPD ist offen, ob sie über 17TRACK ankommt.',
+        });
+        settings.bind('notify-soon', notifySoon, 'active', Gio.SettingsBindFlags.DEFAULT);
+        groupNotify.add(notifySoon);
+
+        const soonMinutes = new Adw.SpinRow({
+            title: 'Vorlaufzeit',
+            subtitle: 'Minuten vor Beginn des Zustellfensters',
+            adjustment: new Gtk.Adjustment({
+                lower: 5,
+                upper: 120,
+                step_increment: 5,
+                page_increment: 15,
+                value: settings.get_int('notify-soon-minutes'),
+            }),
+        });
+        settings.bind('notify-soon-minutes', soonMinutes, 'value', Gio.SettingsBindFlags.DEFAULT);
+        settings.bind('notify-soon', soonMinutes, 'sensitive', Gio.SettingsBindFlags.GET);
+        groupNotify.add(soonMinutes);
+
+        // ==========================================
+        // Seite 4: Updates
         // ==========================================
         const pageUpdate = new Adw.PreferencesPage({
             title: 'Updates',

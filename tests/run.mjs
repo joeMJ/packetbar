@@ -77,9 +77,9 @@ const base = () => ({
 test('gültige Datenbank wird bereinigt übernommen', () => {
     const r = sh.validateShipperDb({ ...base(), evil: '<script>' });
     assert.equal(r.ok, true);
-    assert.deepEqual(Object.keys(r.db).sort(), ['schema', 'shippers', 'updated', 'version']);
+    assert.deepEqual(Object.keys(r.db).sort(), ['intervals', 'schema', 'shippers', 'statusMaps', 'updated', 'version']);
     assert.deepEqual(Object.keys(r.db.shippers[0]).sort(),
-        ['id', 'name', 'numberHint', 'provider', 'providerOptions', 'providers', 'trackUrl']);
+        ['defaultInterval', 'id', 'minInterval', 'name', 'numberHint', 'numberPatterns', 'provider', 'providerOptions', 'providers', 'trackUrl']);
 });
 
 test('Strukturfehler lehnen die ganze Datenbank ab', () => {
@@ -355,7 +355,7 @@ test('Abfrageintervall je Versender', () => {
     const reg = { state: 'preTransit', registered: true, fetchedAt: now - 61 * 1000 };
     assert.equal(u.isDue({ entry: reg, attemptAt: now - 61 * 1000, intervalMin: 240, now }), true);
     assert.equal(u.isDue({ entry: reg, attemptAt: now - 30 * 1000, intervalMin: 240, now }), false);
-    assert.deepEqual(u.INTERVAL_CHOICES, [15, 30, 60, 120, 180, 240]);
+    assert.deepEqual(u.getIntervalChoices(), [15, 30, 60, 120, 180, 240]);
 });
 
 test('Status-Quelle: Kette der Anbieter und Einstellung', () => {
@@ -387,6 +387,125 @@ test('Datenbank: providers-Liste wird bereinigt, altes Einzelfeld bleibt gültig
     assert.deepEqual(r.db.shippers[1].providers, ['dhl']);
     assert.deepEqual(r.db.shippers[2].providers, []);
     assert.equal(r.db.shippers[2].provider, null);
+});
+
+test('Datenbank v6: Statusübersetzung kommt aus der Datenbank', () => {
+    sh.applyShippers(sh.validateShipperDb(bundledRaw).db);
+    // Alle eingebauten Einträge stehen auch in der Datei (Datei ist maßgeblich)
+    assert.equal(sh.getStatusEntry('17track', 'OutForDelivery').today, true);
+    assert.equal(sh.getStatusEntry('17track', 'Delivered').label, 'Zugestellt');
+    assert.equal(sh.getStatusEntry('dhl', 'transit').state, 'transit');
+    assert.equal(sh.getStatusEntry('17track', '__proto__'), null);
+    assert.equal(sh.getStatusEntry('17track', 'gibtsnicht'), null);
+
+    // Eine neue Datenbank kann Einträge ergänzen und ersetzen – ohne neuen Programmcode
+    const custom = JSON.parse(JSON.stringify(bundledRaw));
+    custom.statusMaps['17track'].Neu = { state: 'failure', label: 'Neuer Status' };
+    custom.statusMaps['17track'].InTransit = { state: 'transit', label: 'Auf dem Weg' };
+    sh.applyShippers(sh.validateShipperDb(custom).db);
+    const r = u.normalizeTrack17Info({ track_info: { latest_status: { status: 'Neu' } } });
+    assert.equal(r.state, 'failure');
+    assert.equal(r.statusText, 'Neuer Status');
+    assert.equal(u.normalizeTrack17Info({ track_info: { latest_status: { status: 'InTransit' } } }).statusText, 'Auf dem Weg');
+    sh.applyShippers(sh.validateShipperDb(bundledRaw).db);
+    assert.equal(u.normalizeTrack17Info({ track_info: { latest_status: { status: 'InTransit' } } }).statusText, 'Unterwegs');
+
+    // „heute“-Kennzeichen und Bereinigung
+    assert.equal(u.normalizeTrack17Info({ track_info: { latest_status: { status: 'OutForDelivery' } } }).today, true);
+    assert.equal(u.normalizeTrack17Info({ track_info: { latest_status: { status: 'InTransit' } } }).today, false);
+    const dirty = sh.validateShipperDb({ schema: 1, version: 1,
+        statusMaps: { '17track': { Ok: { state: 'transit', label: 'x', today: true }, 'bad key': { state: 'transit' },
+            Bad1: { state: 'explode' }, Bad2: 'nope' }, evil: { X: { state: 'transit' } } },
+        shippers: [{ id: 'a1', name: 'A', trackUrl: 'https://a.b/{number}' }] });
+    assert.deepEqual(Object.keys(dirty.db.statusMaps), ['17track']);
+    assert.deepEqual(Object.keys(dirty.db.statusMaps['17track']), ['Ok']);
+    sh.applyShippers(sh.validateShipperDb(bundledRaw).db);
+});
+
+test('Datenbank v6: Intervalle und Mindestwerte', () => {
+    const v = choices => sh.validateShipperDb({ schema: 1, version: 1, intervals: choices,
+        shippers: [{ id: 'a1', name: 'A', trackUrl: 'https://a.b/{number}', minInterval: 5, defaultInterval: 90 }] }).db;
+    assert.deepEqual(v([60, 30, 30, 5, 9999, 'x']).intervals, [30, 60]);
+    assert.equal(v([]).intervals, null);
+    assert.equal(v('nope').intervals, null);
+    assert.equal(v([15]).shippers[0].minInterval, null);       // unter 15 Minuten wird verworfen
+    assert.equal(v([15]).shippers[0].defaultInterval, 90);
+    sh.applyShippers(v([45, 90]));
+    assert.deepEqual(sh.getIntervalChoices(), [45, 90]);
+    sh.applyShippers(sh.validateShipperDb(bundledRaw).db);
+    assert.deepEqual(sh.getIntervalChoices(), [15, 30, 60, 120, 180, 240]);
+
+    const dpd = { defaultInterval: 120, minInterval: 30 };
+    assert.equal(u.effectiveInterval({ own: 45, globalMin: 60, carrier: dpd }), 45);
+    assert.equal(u.effectiveInterval({ own: 15, globalMin: 60, carrier: dpd }), 30);   // Mindestwert
+    assert.equal(u.effectiveInterval({ globalMin: 60, globalIsUserSet: true, carrier: dpd }), 60);
+    assert.equal(u.effectiveInterval({ globalMin: 60, globalIsUserSet: false, carrier: dpd }), 120);
+    assert.equal(u.effectiveInterval({ globalMin: 60, carrier: {} }), 60);
+    assert.equal(u.effectiveInterval({ globalMin: 5, globalIsUserSet: true }), 15);
+});
+
+test('Datenbank v6: Nummernmuster sind sicher und funktionieren', () => {
+    const mk = patterns => sh.validateShipperDb({ schema: 1, version: 1, shippers: [
+        { id: 'a1', name: 'A', trackUrl: 'https://a.b/{number}', numberPatterns: patterns }] }).db.shippers[0].numberPatterns;
+    // Gruppen, Alternativen, Rückverweise, Escapes und Überlanges werden verworfen
+    assert.deepEqual(mk(['(a+)+$', 'a|b', '\\d+', '(?=x)', 'x'.repeat(81), 5, null, '[', '[0-9]{14}']), ['[0-9]{14}']);
+    assert.deepEqual(mk('nope'), []);
+    assert.equal(mk(Array.from({ length: 20 }, () => '[0-9]{5}')).length, 8);
+
+    sh.applyShippers(sh.validateShipperDb(bundledRaw).db);
+    const dpd = u.getCarrier('dpd');
+    assert.equal(u.matchesNumber(dpd, '09447167527803'), true);
+    assert.equal(u.matchesNumber(dpd, '123'), false);
+    assert.equal(u.matchesNumber(u.getCarrier('amazon'), 'irgendwas'), null);
+    assert.equal(u.matchesNumber(u.getCarrier('ups'), '1z999aa10123456784'), true);   // Groß-/Kleinschreibung egal
+    assert.equal(u.detectCarrier('1Z999AA10123456784'), 'ups');
+    assert.equal(u.detectCarrier('09447167527803'), 'dpd');
+    assert.equal(u.detectCarrier('354498879068'), null);   // 12 Ziffern: DHL oder GLS – nicht eindeutig
+    assert.equal(u.detectCarrier('abc'), null);
+});
+
+test('Zustellfenster', () => {
+    assert.deepEqual(u.parseEtaWindow('2026-09-30T00:00:00+02:00', null), { fromMs: null, toMs: null });
+    assert.deepEqual(u.parseEtaWindow('2026-09-30', null), { fromMs: null, toMs: null });
+    assert.deepEqual(u.parseEtaWindow(null, null), { fromMs: null, toMs: null });
+    const w = u.parseEtaWindow('2026-09-30T14:00:00+02:00', '2026-09-30T15:00:00+02:00');
+    assert.equal(w.fromMs, Date.parse('2026-09-30T14:00:00+02:00'));
+    assert.equal(w.toMs, Date.parse('2026-09-30T15:00:00+02:00'));
+    const one = u.parseEtaWindow('2026-09-30T14:30:00+02:00', null);
+    assert.equal(one.fromMs, one.toMs);
+    const r = u.normalizeTrack17Info({ track_info: { latest_status: { status: 'OutForDelivery' }, time_metrics: {
+        estimated_delivery_date: { from: '2026-09-30T14:00:00+02:00', to: '2026-09-30T15:00:00+02:00' } } } });
+    assert.equal(r.etaFromMs, Date.parse('2026-09-30T14:00:00+02:00'));
+});
+
+test('Benachrichtigungen: heute, in Kürze, nur einmal pro Tag', () => {
+    const on = { today: true, soon: true, soonMinutes: 30 };
+    const now = new Date(2026, 8, 30, 13, 45).getTime();
+    const day = u.dayKey(new Date(now));
+    const inTransit = { state: 'transit', today: true };
+
+    assert.deepEqual(u.notificationsDue({ entry: inTransit, now, opts: on }), ['today']);
+    // schon gemeldet → nicht noch einmal am selben Tag, am nächsten Tag wieder
+    assert.deepEqual(u.notificationsDue({ entry: inTransit, notified: { today: day }, now, opts: on }), []);
+    assert.deepEqual(u.notificationsDue({ entry: inTransit, notified: { today: '2026-09-29' }, now, opts: on }), ['today']);
+    // Voraussichtliche Zustellung heute reicht ebenfalls
+    assert.deepEqual(u.notificationsDue({ entry: { state: 'transit', eta: new Date(now).toISOString() }, now, opts: on }), ['today']);
+    assert.deepEqual(u.notificationsDue({ entry: { state: 'transit', eta: '2026-10-05T00:00:00' }, now, opts: on }), []);
+    // Zugestellt, Zustellproblem, ausgeschaltet, kein Eintrag
+    assert.deepEqual(u.notificationsDue({ entry: { state: 'delivered', today: true }, now, opts: on }), []);
+    assert.deepEqual(u.notificationsDue({ entry: { state: 'failure', today: true }, now, opts: on }), []);
+    assert.deepEqual(u.notificationsDue({ entry: inTransit, now, opts: { ...on, today: false } }), []);
+    assert.deepEqual(u.notificationsDue({ now, opts: on }), []);
+
+    // „in Kürze“: Fenster 14:00–15:00, Vorlauf 30 Minuten
+    const win = { state: 'transit', etaFromMs: new Date(2026, 8, 30, 14, 0).getTime(), etaToMs: new Date(2026, 8, 30, 15, 0).getTime() };
+    assert.deepEqual(u.notificationsDue({ entry: win, now, opts: on }), ['soon']);                                       // 13:45 → 15 Min. vorher
+    assert.deepEqual(u.notificationsDue({ entry: win, now: new Date(2026, 8, 30, 13, 20).getTime(), opts: on }), []);  // zu früh
+    assert.deepEqual(u.notificationsDue({ entry: win, now: new Date(2026, 8, 30, 15, 5).getTime(), opts: on }), []);   // Fenster vorbei
+    assert.deepEqual(u.notificationsDue({ entry: win, notified: { soon: day }, now, opts: on }), []);
+    assert.deepEqual(u.notificationsDue({ entry: win, now, opts: { ...on, soon: false } }), []);
+    assert.deepEqual(u.notificationsDue({ entry: { ...inTransit, ...win }, now, opts: on }), ['today', 'soon']);
+    assert.equal(u.formatTime(new Date(2026, 8, 30, 9, 5).getTime()), '09:05');
 });
 
 console.log(`${count} Tests bestanden`);

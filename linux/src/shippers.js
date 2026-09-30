@@ -20,6 +20,50 @@ export const PROVIDERS = ['dhl', '17track'];
 const ID_PATTERN = /^[a-z0-9-]{2,20}$/;
 const MAX_SHIPPERS = 50;
 
+/** Zustände, auf die sich alle Anbieter-Status abbilden lassen. */
+export const STATES = ['preTransit', 'transit', 'delivered', 'failure', 'unknown'];
+
+const MIN_INTERVAL = 15;       // darunter würden die Tageslimits der APIs leiden
+const MAX_INTERVAL = 1440;
+
+/**
+ * Übersetzung der Status-Werte je Anbieter → Zustand, Text und „wird heute zugestellt“.
+ * Eingebaute Vorgabe; die Versender-Datenbank kann Einträge ergänzen oder ersetzen, ohne dass
+ * neuer Programmcode nötig ist.
+ */
+const DEFAULT_STATUS_MAPS = {
+    '17track': {
+        NotFound: { state: 'unknown', label: 'Noch keine Daten' },
+        InfoReceived: { state: 'preTransit', label: 'Angekündigt' },
+        InTransit: { state: 'transit', label: 'Unterwegs' },
+        Expired: { state: 'unknown', label: 'Keine Updates mehr' },
+        AvailableForPickup: { state: 'transit', label: 'Abholbereit' },
+        OutForDelivery: { state: 'transit', label: 'In Zustellung', today: true },
+        DeliveryFailure: { state: 'failure', label: 'Zustellung fehlgeschlagen' },
+        Delivered: { state: 'delivered', label: 'Zugestellt' },
+        Exception: { state: 'failure', label: 'Zustellproblem' },
+    },
+    dhl: {
+        'pre-transit': { state: 'preTransit' },
+        'transit': { state: 'transit' },
+        'delivered': { state: 'delivered' },
+        'failure': { state: 'failure' },
+        'unknown': { state: 'unknown' },
+    },
+};
+
+const DEFAULT_INTERVAL_CHOICES = [15, 30, 60, 120, 180, 240];
+
+let activeStatusMaps = cloneMaps(DEFAULT_STATUS_MAPS);
+let activeIntervalChoices = [...DEFAULT_INTERVAL_CHOICES];
+
+function cloneMaps(maps) {
+    const out = {};
+    for (const [provider, map] of Object.entries(maps))
+        out[provider] = Object.fromEntries(Object.entries(map).map(([k, v]) => [k, { ...v }]));
+    return out;
+}
+
 /**
  * Laufende Versender-Registry. Wird von applyShippers() in-place aktualisiert,
  * damit alle Module, die sie importieren, sofort den neuen Stand sehen.
@@ -44,6 +88,63 @@ const FALLBACK_DB = {
 function isText(value, max) {
     return typeof value === 'string' && value.length >= 1 && value.length <= max
         && !/[\u0000-\u001f\u007f]/.test(value);
+}
+
+/**
+ * Nummernmuster sind bewusst stark eingeschränkt: keine Gruppen, keine Alternativen (`|`),
+ * keine Rückverweise. Dann sind sie in linearer Zeit auswertbar, und eine manipulierte
+ * Datenbank kann die Oberfläche nicht mit einem katastrophalen Muster einfrieren.
+ * Mehrere Formate werden als Liste angegeben.
+ */
+const PATTERN_CHARS = /^[\^$\[\]\-A-Za-z0-9{},+*?]{1,80}$/;
+const MAX_PATTERNS = 8;
+
+function compilePattern(pattern) {
+    if (typeof pattern !== 'string' || !PATTERN_CHARS.test(pattern))
+        return null;
+    try {
+        return new RegExp(`^(?:${pattern})$`, 'i');
+    } catch (_e) {
+        return null;
+    }
+}
+
+function validInterval(value) {
+    return Number.isInteger(value) && value >= MIN_INTERVAL && value <= MAX_INTERVAL ? value : null;
+}
+
+function validateStatusMaps(raw) {
+    const out = {};
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw))
+        return out;
+    for (const provider of PROVIDERS) {
+        const map = raw[provider];
+        if (!map || typeof map !== 'object' || Array.isArray(map))
+            continue;
+        const clean = {};
+        for (const [key, entry] of Object.entries(map).slice(0, 60)) {
+            if (!/^[A-Za-z0-9_-]{1,40}$/.test(key) || !entry || typeof entry !== 'object')
+                continue;
+            if (!STATES.includes(entry.state))
+                continue;
+            const value = { state: entry.state };
+            if (isText(entry.label, 40))
+                value.label = entry.label.trim();
+            if (entry.today === true)
+                value.today = true;
+            clean[key] = value;
+        }
+        if (Object.keys(clean).length > 0)
+            out[provider] = clean;
+    }
+    return out;
+}
+
+function validateIntervalChoices(raw) {
+    if (!Array.isArray(raw))
+        return null;
+    const choices = [...new Set(raw.map(validInterval).filter(v => v !== null))].sort((a, b) => a - b);
+    return choices.length > 0 && choices.length <= 12 ? choices : null;
 }
 
 function validateShipper(item) {
@@ -73,6 +174,9 @@ function validateShipper(item) {
         }
     }
 
+    const numberPatterns = (Array.isArray(item.numberPatterns) ? item.numberPatterns : [])
+        .filter(p => compilePattern(p) !== null).slice(0, MAX_PATTERNS);
+
     const hint = item.numberHint;
     return {
         id: item.id,
@@ -81,6 +185,9 @@ function validateShipper(item) {
         providers,
         provider: providers[0] ?? null,
         providerOptions,
+        numberPatterns,
+        minInterval: validInterval(item.minInterval),
+        defaultInterval: validInterval(item.defaultInterval),
         numberHint: isText(hint, 160) ? hint : '',
     };
 }
@@ -128,6 +235,8 @@ export function validateShipperDb(data) {
             schema: data.schema,
             version: data.version,
             updated: isText(data.updated, 20) ? data.updated : '',
+            statusMaps: validateStatusMaps(data.statusMaps),
+            intervals: validateIntervalChoices(data.intervals),
             shippers,
         },
     };
@@ -154,14 +263,52 @@ export function applyShippers(db) {
             provider: s.provider,
             providers: s.providers,
             providerOptions: s.providerOptions,
+            numberPatterns: s.numberPatterns,
+            numberRegexes: s.numberPatterns.map(compilePattern),
+            minInterval: s.minInterval,
+            defaultInterval: s.defaultInterval,
             api: s.providers.length > 0,
             numberHint: s.numberHint,
             trackUrl: s.trackUrl,
             url: number => renderTrackUrl(s.trackUrl, number),
         };
     }
+    // Status-Übersetzung: Vorgabe, Einträge der Datenbank ergänzen oder ersetzen sie
+    activeStatusMaps = cloneMaps(DEFAULT_STATUS_MAPS);
+    for (const [provider, map] of Object.entries(db.statusMaps ?? {}))
+        Object.assign(activeStatusMaps[provider] ??= {}, cloneMaps({ x: map }).x);
+    activeIntervalChoices = db.intervals ?? [...DEFAULT_INTERVAL_CHOICES];
+
     activeVersion = db.version;
     activeUpdated = db.updated ?? '';
+}
+
+/** Übersetzung eines Status-Werts: `{state, label?, today?}` oder null, wenn unbekannt. */
+export function getStatusEntry(provider, key) {
+    const map = activeStatusMaps[provider];
+    return map && Object.hasOwn(map, key) ? map[key] : null;
+}
+
+/** Auswahl für das Abfrageintervall (Minuten), aus der Datenbank oder eingebaut. */
+export function getIntervalChoices() {
+    return [...activeIntervalChoices];
+}
+
+/**
+ * Passt die Nummer zu einem der üblichen Formate des Versenders?
+ * @returns {boolean|null} null, wenn der Versender keine Muster hinterlegt hat
+ */
+export function matchesNumber(carrier, number) {
+    const regexes = (carrier?.numberRegexes ?? []).filter(Boolean);
+    if (regexes.length === 0)
+        return null;
+    return regexes.some(r => r.test(number));
+}
+
+/** Versender-ID, wenn genau ein Versender zur Nummer passt, sonst null. */
+export function detectCarrier(number) {
+    const hits = Object.values(CARRIERS).filter(c => matchesNumber(c, number) === true);
+    return hits.length === 1 ? hits[0].id : null;
 }
 
 /** Version der gerade aktiven Datenbank. */
@@ -190,6 +337,10 @@ export function getCarrier(id) {
         provider: null,
         providers: [],
         providerOptions: {},
+        numberPatterns: [],
+        numberRegexes: [],
+        minInterval: null,
+        defaultInterval: null,
         api: false,
         numberHint: '',
         trackUrl: '',

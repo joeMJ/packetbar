@@ -27,6 +27,8 @@
 * **UPS, DPD, GLS über 17TRACK:** Ein einziger Key beim Tracking-Dienst [17TRACK](https://api.17track.net/) deckt diese Versender ab. Kostenlos sind 100 neu registrierte Sendungen pro Monat, Statusabfragen kosten laut [17TRACK](https://help.17track.net/hc/en-us/articles/37575160271001-Quota-Deduction-Standards-and-Rules) kein Kontingent. Die Sendungsnummern gehen dabei an 17TRACK.
 * **Amazon:** Kann eingetragen werden, hat aber keine Status-Abfrage; die Karte öffnet die Bestellübersicht im Browser.
 * **Versender-Datenbank:** Namen und Links der Versender stehen als JSON im Repository und werden automatisch nachgeladen – ohne Ab- und Anmelden (siehe unten).
+* **Reiter „Allgemein“:** Position im Panel, Standardintervall, Ausblenden zugestellter Sendungen und die Benachrichtigungen.
+* **Benachrichtigungen:** Einstellbar „Sendung wird heute zugestellt“ (sobald der Versender „In Zustellung“ meldet oder die Zustellung für heute erwartet wird) und „Sendung kommt in Kürze“ (wenn der Versender ein Zustellfenster mit Uhrzeit liefert; bei DPD über 17TRACK ist offen, ob das ankommt). Jede Meldung kommt je Sendung höchstens einmal pro Tag.
 * **Abfrageintervall je Versender:** Auf der Seite **Versender** stellst du je Versender ein, wie oft abgefragt wird (15, 30 Minuten, 1, 2, 3 oder 4 Stunden). Ohne eigene Einstellung gilt das Standardintervall der Seite **Sendungen**.
 * **Schonend zur API:** Das Standardlimit von DHL liegt bei 250 Anfragen pro Tag und einer pro Sekunde. packetbar fragt nur alle 15–240 Minuten ab (Standard: 60), wartet zwischen zwei Anfragen, fragt zugestellte Sendungen nie wieder ab, führt einen Tageszähler und pausiert bei einem `429`-Fehler eine Stunde.
 * **Crashsicherer Schlüsselbund:** Der API-Key liegt im GNOME-Schlüsselbund (libsecret), nie in dconf. Im Shell-Prozess wird er ausschließlich ohne Entsperr-Dialog gelesen. Ist der Schlüsselbund noch gesperrt, läuft die Extension normal weiter, zeigt einen Hinweis und versucht es jede Minute erneut, bis er entsperrt ist.
@@ -113,8 +115,13 @@ Welche Versender es gibt, steht in [`linux/data/shippers.json`](linux/data/shipp
 | `version` | Wird bei jeder Änderung um 1 erhöht. Nur eine höhere Version ersetzt die installierte. |
 | `id` | Kurzname, `a-z 0-9 -`, 2–20 Zeichen, eindeutig. |
 | `trackUrl` | Link zur Sendungsverfolgung, muss mit `https://` beginnen. `{number}` wird durch die (URL-kodierte) Sendungsnummer ersetzt. |
-| `provider` | Optional: Status-Anbieter, für den der Code einen Client mitbringt (derzeit nur `dhl`). Ohne Angabe gibt es nur den Link. |
+| `providers` | Optional: Liste der Status-Anbieter, für die der Code einen Client mitbringt (derzeit `dhl` und `17track`), in der Reihenfolge, in der sie versucht werden. Das ältere Einzelfeld `provider` wird weiter gelesen. Ohne Angabe gibt es nur den Link. |
+| `providerOptions` | Optional: feste Einstellungen je Anbieter, derzeit nur der 17TRACK-Versendercode, z. B. `{"17track": {"carrier": 7041}}` (Ganzzahl). |
 | `numberHint` | Optional: Hinweis zum Nummernformat, wird beim Hinzufügen angezeigt. |
+| `numberPatterns` | Optional: übliche Nummernformate, z. B. `["[0-9]{14}"]`. Beim Hinzufügen gibt es einen Hinweis, wenn die Nummer nicht passt, und bei genau einem passenden Versender wird er vorgewählt. Erlaubt sind nur Zeichenklassen, Ziffern/Buchstaben und `{n,m}` `+ * ?` – **keine** Gruppen, Alternativen (`\|`) oder Escapes, damit kein Muster die Oberfläche einfrieren kann. Mehrere Formate als Liste. |
+| `minInterval`, `defaultInterval` | Optional: Mindest- und Vorgabe-Abfrageintervall in Minuten (mindestens 15). Die Vorgabe gilt, solange der Nutzer das allgemeine Intervall nie geändert hat; unter den Mindestwert geht es nie. |
+| `statusMaps` | Optional, oberste Ebene: Übersetzung der Status-Werte je Anbieter in Zustand (`preTransit`, `transit`, `delivered`, `failure`, `unknown`), Text und `today` („wird heute zugestellt“, löst die Benachrichtigung aus). Einträge ergänzen oder ersetzen die eingebauten. |
+| `intervals` | Optional, oberste Ebene: Auswahl für das Abfrageintervall in Minuten (15–1440). |
 
 **So kommt ein neuer Versender dazu:** Eintrag in `shippers.json` ergänzen, `version` erhöhen, `node tests/run.mjs` ausführen, pushen. Alle Installationen holen sich die Datenbank bei der nächsten Abfrage oder über *Einstellungen → Updates → Versender-Datenbank*, **ohne Ab- und Anmelden**. Die heruntergeladene Datei liegt in `~/.local/share/packetbar/shippers.json`, übersteht Programm-Updates und wird nur von `./uninstall.sh` entfernt. Ist die mitgelieferte Datenbank neuer als die heruntergeladene, gilt die mitgelieferte.
 

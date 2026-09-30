@@ -1,7 +1,73 @@
 {
   "schema": 1,
-  "version": 5,
+  "version": 6,
   "updated": "2026-09-30",
+  "statusMaps": {
+    "17track": {
+      "NotFound": {
+        "state": "unknown",
+        "label": "Noch keine Daten"
+      },
+      "InfoReceived": {
+        "state": "preTransit",
+        "label": "Angekündigt"
+      },
+      "InTransit": {
+        "state": "transit",
+        "label": "Unterwegs"
+      },
+      "Expired": {
+        "state": "unknown",
+        "label": "Keine Updates mehr"
+      },
+      "AvailableForPickup": {
+        "state": "transit",
+        "label": "Abholbereit"
+      },
+      "OutForDelivery": {
+        "state": "transit",
+        "label": "In Zustellung",
+        "today": true
+      },
+      "DeliveryFailure": {
+        "state": "failure",
+        "label": "Zustellung fehlgeschlagen"
+      },
+      "Delivered": {
+        "state": "delivered",
+        "label": "Zugestellt"
+      },
+      "Exception": {
+        "state": "failure",
+        "label": "Zustellproblem"
+      }
+    },
+    "dhl": {
+      "pre-transit": {
+        "state": "preTransit"
+      },
+      "transit": {
+        "state": "transit"
+      },
+      "delivered": {
+        "state": "delivered"
+      },
+      "failure": {
+        "state": "failure"
+      },
+      "unknown": {
+        "state": "unknown"
+      }
+    }
+  },
+  "intervals": [
+    15,
+    30,
+    60,
+    120,
+    180,
+    240
+  ],
   "shippers": [
     {
       "id": "dhl",
@@ -17,6 +83,13 @@
         }
       },
       "trackUrl": "https://www.dhl.de/de/privatkunden/pakete-empfangen/verfolgen.html?piececode={number}",
+      "numberPatterns": [
+        "[0-9]{12}",
+        "[0-9]{20}",
+        "JJD[0-9]{16,20}",
+        "JVGL[0-9]{16,20}"
+      ],
+      "minInterval": 15,
       "numberHint": "Sendungsnummer aus der Versandbestätigung, z. B. 00340434161094042557 oder JJD…"
     },
     {
@@ -27,6 +100,11 @@
         "17track"
       ],
       "trackUrl": "https://www.ups.com/track?loc=de_DE&tracknum={number}",
+      "numberPatterns": [
+        "1Z[0-9A-Z]{16}",
+        "T[0-9]{10}"
+      ],
+      "minInterval": 15,
       "numberHint": "Tracking-Nummer, beginnt meist mit 1Z"
     },
     {
@@ -42,6 +120,11 @@
         }
       },
       "trackUrl": "https://tracking.dpd.de/parcelstatus?query={number}&locale=de_DE",
+      "numberPatterns": [
+        "[0-9]{14}",
+        "[0-9]{13}[A-Z]"
+      ],
+      "minInterval": 15,
       "numberHint": "Paketscheinnummer, meist 14 Ziffern"
     },
     {
@@ -52,6 +135,10 @@
         "17track"
       ],
       "trackUrl": "https://gls-group.com/DE/de/paketverfolgung?match={number}",
+      "numberPatterns": [
+        "[0-9]{11,12}"
+      ],
+      "minInterval": 15,
       "numberHint": "Paketnummer, meist 11 oder 12 Ziffern"
     },
     {
