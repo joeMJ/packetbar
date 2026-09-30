@@ -370,16 +370,17 @@ export default class PacketBarExtension extends Extension {
         const provider = this._providers[providerId];
         const { client, secret: secretName } = provider;
         const resolved = new Set();
+        const notFound = new Set();
 
         const { value: apiKey, locked } = await this._getSecret(secretName);
         if (!apiKey) {
             if (locked)
                 this._scheduleRetry(60);   // ohne Dialog warten, bis der Schlüsselbund entsperrt ist
-            return { hint: { kind: locked ? 'locked' : 'nokey', provider: providerId }, offline: false, resolved };
+            return { hint: { kind: locked ? 'locked' : 'nokey', provider: providerId }, offline: false, resolved, notFound };
         }
 
         if (Date.now() < provider.pausedUntil)
-            return { hint: { kind: 'ratelimit', provider: providerId }, offline: false, resolved };
+            return { hint: { kind: 'ratelimit', provider: providerId }, offline: false, resolved, notFound };
 
         let hint = null;
         let offline = false;
@@ -401,16 +402,14 @@ export default class PacketBarExtension extends Extension {
                 this._countRequests(providerId, res.requests ?? 1);
 
             if (res.ok) {
-                this._cache[parcel.id] = { ...res, fetchedAt: Date.now() };
+                this._cache[parcel.id] = { ...res, source: providerId, fetchedAt: Date.now() };
                 resolved.add(parcel.id);
             } else if (res.error === 'notfound') {
-                resolved.add(parcel.id);
-                this._cache[parcel.id] = {
-                    state: 'unknown',
-                    statusText: 'Noch keine Daten',
-                    detail: 'Die Sendung ist beim Versender (noch) nicht bekannt',
-                    fetchedAt: Date.now(),
-                };
+                // „Nicht gefunden“ ist noch keine endgültige Antwort: ein weiterer Anbieter kennt
+                // die Sendung vielleicht (z. B. DHL-API kennt manche Nummern nicht). Der Eintrag
+                // „Noch keine Daten“ wird erst geschrieben, wenn keiner mehr übrig ist.
+                notFound.add(parcel.id);
+                console.log(`[packetbar] ${provider.label}: ${parcel.number} nicht gefunden (${res.message})`);
             } else if (res.error === 'auth') {
                 hint = { kind: 'auth', provider: providerId };
                 break;                     // Key falsch – keine weiteren Anfragen verschwenden
@@ -431,7 +430,7 @@ export default class PacketBarExtension extends Extension {
                 await this._sleep(provider.gapMs);
         }
 
-        return { hint, offline, resolved };
+        return { hint, offline, resolved, notFound };
     }
 
     /**
@@ -489,6 +488,7 @@ export default class PacketBarExtension extends Extension {
                     .filter(id => this._providers[id])]));
             const unresolved = new Set(pending.filter(p => chains.get(p.id).length > 0).map(p => p.id));
             const hintFor = new Map();
+            const notFoundIds = new Set();
             const steps = Math.max(0, ...[...chains.values()].map(c => c.length));
 
             for (let step = 0; step < steps && !offline; step++) {
@@ -508,6 +508,8 @@ export default class PacketBarExtension extends Extension {
                     fetched = true;
                     for (const id of result.resolved)
                         unresolved.delete(id);
+                    for (const id of result.notFound)
+                        notFoundIds.add(id);
                     if (result.hint) {
                         for (const t of targets) {
                             // Der Hinweis des zuerst versuchten Anbieters zählt
@@ -517,6 +519,17 @@ export default class PacketBarExtension extends Extension {
                     }
                     if (offline)
                         break;
+                }
+            }
+            // Von keinem Anbieter gefunden → „Noch keine Daten“ (ein guter älterer Stand bleibt)
+            for (const id of unresolved) {
+                if (notFoundIds.has(id) && !this._cache[id]?.source && this._cache[id]?.state !== 'delivered') {
+                    this._cache[id] = {
+                        state: 'unknown',
+                        statusText: 'Noch keine Daten',
+                        detail: 'Die Sendung ist beim Versender (noch) nicht bekannt',
+                        fetchedAt: Date.now(),
+                    };
                 }
             }
             // Hinweis nur für Sendungen, die am Ende von keinem Anbieter beantwortet wurden

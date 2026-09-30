@@ -270,7 +270,9 @@ class PacketIndicator extends PanelMenu.Button {
         info.add_child(title);
 
         const subtitle = new St.Label({
-            text: parcel.label ? `${carrier.name} • ${parcel.number}` : carrier.name,
+            text: (parcel.label ? `${carrier.name} • ${parcel.number}` : carrier.name)
+                + (carrier.providers.length > 1 && entry?.source
+                    ? ` • über ${PROVIDER_LABELS[entry.source] ?? entry.source}` : ''),
             style_class: 'packetbar-card-subtitle',
         });
         subtitle.clutter_text.ellipsize = Pango.EllipsizeMode.MIDDLE;
