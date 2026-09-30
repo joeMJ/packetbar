@@ -308,8 +308,12 @@ class PacketIndicator extends PanelMenu.Button {
             const detail = new St.Label({
                 text: detailText,
                 style_class: 'packetbar-card-detail',
+                x_expand: true,
             });
-            detail.clutter_text.ellipsize = Pango.EllipsizeMode.END;
+            // Lange Ereignistexte (z. B. von 17TRACK) umbrechen statt mit „…“ abzuschneiden
+            detail.clutter_text.line_wrap = true;
+            detail.clutter_text.line_wrap_mode = Pango.WrapMode.WORD_CHAR;
+            detail.clutter_text.ellipsize = Pango.EllipsizeMode.NONE;
             info.add_child(detail);
         }
 
