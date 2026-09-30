@@ -6,6 +6,8 @@ import Soup from 'gi://Soup?version=3.0';
 import GLib from 'gi://GLib';
 import Gio from 'gi://Gio';
 
+import { withCacheBuster } from './parcelUtil.js';
+
 try {
     Gio._promisify(Soup.Session.prototype, 'send_and_read_async', 'send_and_read_finish');
 } catch (e) {
@@ -38,7 +40,7 @@ export class UpdateChecker {
         }
 
         try {
-            const uri = GLib.Uri.parse(rawMetadataUrl.trim(), GLib.UriFlags.ENCODED);
+            const uri = GLib.Uri.parse(withCacheBuster(rawMetadataUrl), GLib.UriFlags.ENCODED);
             const message = new Soup.Message({
                 method: 'GET',
                 uri: uri,

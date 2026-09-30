@@ -325,6 +325,12 @@ test('Anbieter-Optionen: 17TRACK-Versendercode für DHL, Eingaben werden bereini
     assert.deepEqual(r.db.shippers[2].providerOptions, {});
 });
 
+test('Cache-Buster für raw.githubusercontent.com', () => {
+    assert.equal(u.withCacheBuster('https://x.y/a.json', 5), 'https://x.y/a.json?cb=5');
+    assert.equal(u.withCacheBuster(' https://x.y/a.json?v=1 ', 7), 'https://x.y/a.json?v=1&cb=7');
+    assert.equal(u.withCacheBuster('https://x.y/a.json#f', 9), 'https://x.y/a.json?cb=9');
+});
+
 test('Abfrageintervall je Versender', () => {
     assert.deepEqual(u.parseCarrierIntervals('{"dhl":15,"dpd":180,"ups":7,"x":15,"BAD":60,"gls":"60"}'),
         { dhl: 15, dpd: 180 });

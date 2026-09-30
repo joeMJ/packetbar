@@ -115,6 +115,16 @@ export function isVisible(entry, hideAfterDays, now = Date.now()) {
     return now - since <= hideAfterDays * 86400000;
 }
 
+/**
+ * Hängt einen Zeitstempel an eine URL, damit ein Zwischenspeicher (bei raw.githubusercontent.com
+ * bis zu etwa 5 Minuten) nicht die alte Fassung liefert. Der Header `Cache-Control: no-cache`
+ * im Request reicht dafür nicht.
+ */
+export function withCacheBuster(url, now = Date.now()) {
+    const base = String(url).trim().split('#')[0];
+    return `${base}${base.includes('?') ? '&' : '?'}cb=${now}`;
+}
+
 /** Auswahl für das Abfrageintervall je Versender (Minuten). */
 export const INTERVAL_CHOICES = [15, 30, 60, 120, 180, 240];
 

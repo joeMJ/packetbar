@@ -18,6 +18,7 @@ import {
     validateShipperDb, applyShippers, activeShipperVersion, activeShipperUpdated,
     carrierIds, isNewerVersion,
 } from './shippers.js';
+import { withCacheBuster } from './parcelUtil.js';
 
 try {
     Gio._promisify(Soup.Session.prototype, 'send_and_read_async', 'send_and_read_finish');
@@ -115,7 +116,7 @@ export async function updateShippers(url, cancellable = null) {
 
         const message = new Soup.Message({
             method: 'GET',
-            uri: GLib.Uri.parse(trimmed, GLib.UriFlags.ENCODED),
+            uri: GLib.Uri.parse(withCacheBuster(trimmed), GLib.UriFlags.ENCODED),
         });
         message.request_headers.append('Cache-Control', 'no-cache');
 
