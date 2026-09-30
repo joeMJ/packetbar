@@ -34,7 +34,7 @@ const PROVIDER_UI = {
         secret: '17track-api-key',
         revisionKey: 'track17-key-revision',
         keyTitle: 'API-Key (Security Key)',
-        description: 'Ein Key für viele Versender (UPS, DPD, GLS …), von 17TRACK erkannt. Kostenlos: 100 neue Sendungen pro Monat (jede Sendung wird einmal registriert), Statusabfragen kosten kein Kontingent. Key im 17TRACK-Konto unter „Einstellungen → Sicherheit“. Die Sendungsnummern werden an 17TRACK übermittelt.',
+        description: 'Ein Key für viele Versender (UPS, DPD, GLS …), von 17TRACK erkannt. Neue Konten erhalten laut 17TRACK einmalig 200 kostenlose Registrierungen, danach nur gegen Bezahlung. Jede neue Sendung verbraucht eine Registrierung, Statusabfragen danach nicht. Key im 17TRACK-Konto unter „Einstellungen → Sicherheit“. Die Sendungsnummern werden an 17TRACK übermittelt.',
         portalUrl: 'https://api.17track.net/',
         portalLabel: '17TRACK API',
     },
@@ -99,7 +99,11 @@ export default class PacketBarPreferences extends ExtensionPreferences {
         // Hinweis zum Nummernformat des gewählten Versenders (aus der Datenbank)
         const ADD_SUBTITLE = 'Doppelte Sendungsnummern werden erkannt';
         const showCarrierHint = () => {
-            addRow.subtitle = getCarrier(carrierIds()[carrierRow.selected]).numberHint || ADD_SUBTITLE;
+            const c = getCarrier(carrierIds()[carrierRow.selected]);
+            const cost = c.providers[0] === '17track'
+                ? ' • Verbraucht bei der ersten Abfrage 1 Registrierung deines 17TRACK-Kontingents'
+                : '';
+            addRow.subtitle = (c.numberHint || ADD_SUBTITLE) + cost;
         };
         carrierRow.connect('notify::selected', showCarrierHint);
         showCarrierHint();

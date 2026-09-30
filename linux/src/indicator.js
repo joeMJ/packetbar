@@ -33,7 +33,7 @@ const HINT_TEXTS = {
         + (name === 'DHL' ? ' Neu erstellte Keys können bis zu 24 Stunden brauchen, bis sie aktiv sind.' : ''),
     ratelimit: name => `${name}-Anfragelimit erreicht – Abfragen pausieren eine Stunde.`,
     budget: name => `Tageslimit für ${name}-Anfragen fast erreicht – morgen geht es weiter.`,
-    quota: name => `${name}-Kontingent aufgebraucht – neue Sendungen können erst im nächsten Monat registriert werden.`,
+    quota: name => `${name}-Kontingent aufgebraucht – neue Sendungen können nicht mehr registriert werden. Bitte das Guthaben im ${name}-Konto prüfen.`,
 };
 
 export const PacketIndicator = GObject.registerClass(

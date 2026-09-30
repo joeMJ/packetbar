@@ -6,7 +6,8 @@
  *
  * Ablauf: Erst /gettrackinfo. Ist die Nummer dort noch nicht registriert
  * (Fehler -18019902), wird sie einmalig per /register angelegt – das kostet 1 Kontingent
- * (kostenlos: 100 pro Monat). Weitere Statusabfragen kosten kein Kontingent.
+ * (neue Konten: einmalig 200 kostenlose Registrierungen). Weitere Statusabfragen kosten
+ * laut 17TRACK kein Kontingent.
  * Limit: 3 Anfragen pro Sekunde (HTTP 429 bei Überschreitung).
  */
 
