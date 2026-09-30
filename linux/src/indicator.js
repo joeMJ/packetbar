@@ -107,8 +107,12 @@ class PacketIndicator extends PanelMenu.Button {
         this._updateLabel = new St.Label({
             text: 'Update verfügbar!',
             style_class: 'packetbar-update-text',
+            x_expand: true,
             y_align: Clutter.ActorAlign.CENTER,
         });
+        // Langer Text: umbrechen statt abschneiden
+        this._updateLabel.clutter_text.line_wrap = true;
+        this._updateLabel.clutter_text.ellipsize = Pango.EllipsizeMode.NONE;
         this._updateBanner.add_child(this._updateLabel);
         this._contentBox.add_child(this._updateBanner);
 

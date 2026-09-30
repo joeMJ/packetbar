@@ -10,7 +10,7 @@
     "50"
   ],
   "url": "https://github.com/joeMJ/packetbar",
-  "version": 3,
-  "version-name": "0.3",
+  "version": 4,
+  "version-name": "0.4",
   "settings-schema": "org.gnome.shell.extensions.packetbar"
 }
